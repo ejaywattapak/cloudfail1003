@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU
+# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU (ALIGNED BORDER)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -50,15 +50,15 @@ ASCII
 
 while true; do
     show_banner
-    echo -e "${CYAN}╭─────────────────────────────[ MAIN MENU ]─────────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${CYAN}│${NC}                                                                                                                ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Clone IP${NC}               ${GRAY}(Cari IP ikut IP target + Error 1003)${NC}      ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Show History${NC}           ${GRAY}(Papar rekod carian lepas)${NC}                 ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[4]${NC} ${WHITE}Search by Country${NC}      ${GRAY}(Cari IP ikut Negara/Negeri/Bandar)${NC}        ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[5]${NC} ${WHITE}Search by Postcode${NC}     ${GRAY}(Cari IP ikut Poskod / Zipcode)${NC}            ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${RED}[6]${NC} ${WHITE}Exit${NC}                   ${GRAY}(Keluar ke terminal)${NC}                          ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}                                                                                                                ${CYAN}│${NC}"
-    echo -e "${CYAN}╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯${NC}"
+    echo -e "${CYAN}╭──────────────────────────────────────────────────────────────────────╮${NC}"
+    echo -e "${CYAN}│${NC}                            ${WHITE}MAIN MENU${NC}                                 ${CYAN}│${NC}"
+    echo -e "${CYAN}├──────────────────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Clone IP${NC}             ${GRAY}(Cari IP ikut IP target + Error 1003)${NC}      ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Show History${NC}         ${GRAY}(Papar rekod carian lepas)${NC}                ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[4]${NC} ${WHITE}Search by Country${NC}    ${GRAY}(Cari IP ikut Negara/Negeri/Bandar)${NC}      ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[5]${NC} ${WHITE}Search by Postcode${NC}   ${GRAY}(Cari IP ikut Poskod / Zipcode)${NC}          ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${RED}[6]${NC} ${WHITE}Exit${NC}                 ${GRAY}(Keluar ke terminal)${NC}                     ${CYAN}│${NC}"
+    echo -e "${CYAN}╰──────────────────────────────────────────────────────────────────────╯${NC}"
     echo -e "${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}\n"
     echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1/2/4/5/6)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
     read -r choice
