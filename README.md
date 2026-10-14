@@ -18,9 +18,9 @@
 
 ---
 
-## 📋 Tentang Projek
+## 📋 About This Project
 
-**EJAYWATT CLOUDFAIL** ialah skrip pengimbas dan pencari IP automatik untuk VPS (Ubuntu, Debian, & Rocky Linux) yang direka khas untuk mencari alamat IP merentasi pelbagai blok subnet yang berkongsi **Lokasi, Bandar, Poskod, dan Rangkaian** yang sama, serta mengesahkan secara langsung (*Live Verification*) bahawa IP tersebut memaparkan **Error 1003 (`Direct IP access not allowed`)** apabila diakses melalui pelayar web.
+**EJAYWATT CLOUDFAIL** is an automated VPS scanner that searches multiple IP ranges for matching GeoIP locations and verifies Cloudflare Error 1003 responses in real time.
 
 ---
 
@@ -30,4 +30,64 @@ Log masuk ke VPS anda sebagai **`root`**, kemudian salin dan jalankan arahan di 
 
 ```bash
 wget -O installer.sh https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main/installer.sh && chmod +x installer.sh && ./installer.sh
+
+Requirements: Ubuntu, Debian, or Rocky Linux with root access.
+
+wget -O installer.sh https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main/installer.sh && chmod +x installer.sh && ./installer.sh
+
+📌 Installation Steps
+
+Connect to your VPS via SSH as root.
+
+Copy and run the installation command above.
+
+Follow the on-screen instructions to complete the setup.
+
+💻 Supported Operating Systems
+
+Operating System
+
+Support
+
+Ubuntu
+
+✅
+
+Debian
+
+✅
+
+Rocky Linux
+
+✅
+
+⚙️ Key Features
+
+Multi-Range IP Scanning — Scan IP addresses across multiple IP ranges and subnet blocks.
+
+GeoIP Matching — Identify IP addresses associated with matching locations, cities, postal codes, and networks, subject to GeoIP database accuracy.
+
+Live Error 1003 Verification — Check whether a target IP returns Cloudflare Error 1003 (Direct IP access not allowed).
+
+VPS-Friendly Installation — Install and run the scanner directly on supported Linux VPS environments.
+
+Automated Scanning — Reduce manual work when searching and verifying candidate IP addresses.
+
+⚠️ Disclaimer
+
+This project is intended for educational purposes, network diagnostics, and authorized testing. Results may vary depending on IP allocation, GeoIP database accuracy, network conditions, and Cloudflare configuration.
+
+Only scan and test IP addresses and networks that you are authorized to assess. An Error 1003 response does not guarantee that an IP address is suitable for every application or connection method.
+
+📬 Contact
+
+For questions, feedback, or support, contact:
+
+Telegram: @ejwtpkvpn
+
+<div align="center">
+
+Developed by EJAYWATT
+
+</div>
 
