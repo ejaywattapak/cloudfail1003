@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - GLOBAL BGP & GEOIP ENGINE v4.2 (LOOP)
+# EJAYWATT CLOUDFAIL - CORE ENGINE v5.0 (20 IPs + AUTO REPEAT)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -53,52 +53,71 @@ search_error_1003_worker() {
     local asn_raw=$7
 
     IFS='.' read -r o1 o2 o3 o4 <<< "$target_ip"
-    asn_id=$(echo "$asn_raw" | awk '{print $1}')
 
     > /tmp/candidate_prefixes.txt
     > /tmp/candidate_ips.txt
     > /tmp/live_1003_ips.txt
     > /tmp/verified_matches.txt
+    > /tmp/final_matched_output.txt
 
     cat << 'PREFIXES' > /tmp/candidate_prefixes.txt
 103.21.244.0/22
 103.22.200.0/22
+103.31.4.0/22
 108.162.192.0/18
+131.0.72.0/22
 141.101.64.0/18
 162.158.0.0/15
 172.64.0.0/13
 172.68.0.0/14
+172.70.0.0/15
+172.71.0.0/16
 173.245.48.0/20
 188.114.96.0/20
 190.93.240.0/20
+197.234.240.0/22
 198.41.128.0/17
 104.16.0.0/13
+104.24.0.0/14
 PREFIXES
 
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
-        for _ in {1..8}; do
+        for _ in {1..16}; do
             cidr_to_random_ip "$prefix" >> /tmp/candidate_ips.txt
         done
     done < /tmp/candidate_prefixes.txt
 
-    grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 140 > /tmp/unique_candidates.txt
+    for _ in {1..25}; do
+        echo "${o1}.${o2}.$(( RANDOM % 256 )).$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
+    done
 
-    cat /tmp/unique_candidates.txt | xargs -P 35 -I {} bash -c '
+    grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 260 > /tmp/unique_candidates.txt
+
+    cat /tmp/unique_candidates.txt | xargs -P 50 -I {} bash -c '
         ip="{}"
-        resp=$(curl -s --connect-timeout 1.5 --max-time 2.5 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
+        resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
         if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
             echo "$ip"
         fi
     ' > /tmp/live_1003_ips.txt
 
-    mapfile -t valid_ips < <(head -n 100 /tmp/live_1003_ips.txt)
+    mapfile -t valid_ips < <(head -n 180 /tmp/live_1003_ips.txt)
     [ ${#valid_ips[@]} -eq 0 ] && return
 
-    json_payload=$(printf '%s\n' "${valid_ips[@]}" | jq -R . | jq -s .)
-    curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,regionName,city,zip,isp,query" \
-         -H "Content-Type: application/json" \
-         -d "$json_payload" > /tmp/batch_1003.json
+    rm -f /tmp/batch_1003_*.json
+    for round in 1 2; do
+        start_idx=$(( (round - 1) * 90 ))
+        batch_slice=("${valid_ips[@]:start_idx:90}")
+        [ ${#batch_slice[@]} -eq 0 ] && break
+
+        json_payload=$(printf '%s\n' "${batch_slice[@]}" | jq -R . | jq -s .)
+        curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,regionName,city,zip,isp,query" \
+             -H "Content-Type: application/json" \
+             -d "$json_payload" > "/tmp/batch_1003_${round}.json"
+    done
+
+    jq -s 'add' /tmp/batch_1003_*.json > /tmp/batch_1003.json 2>/dev/null
 
     jq -r --arg c "$country" --arg ct "$city" --arg z "$zip" \
         '.[] | select(.status=="success" and .country==$c and .city==$ct and .zip==$z) | "\(.query)|\(.city)|\(.zip)|\(.isp)"' \
@@ -115,77 +134,69 @@ PREFIXES
     jq -r '.[] | select(.status=="success") | "\(.query)|\(.city)|\(.zip)|\(.isp)"' \
         /tmp/batch_1003.json 2>/dev/null >> /tmp/verified_matches.txt
 
-    awk -F'|' '!seen_ip[$1]++ {
-        split($1, oct, ".");
-        if (oct[1] != "'"$o1"'" && !seen_pref[oct[1]"."oct[2]]++) {
-            print $0
-        }
-    }' /tmp/verified_matches.txt | head -n 10 > /tmp/final_matched_output.txt
-
-    awk -F'|' '!seen[$1]++' /tmp/final_matched_output.txt | head -n 10 > /tmp/final_clean_output.txt
-    mv /tmp/final_clean_output.txt /tmp/final_matched_output.txt
+    awk -F'|' '!seen[$1]++' /tmp/verified_matches.txt | head -n 20 > /tmp/final_matched_output.txt
 }
 
-# --- MENU 1: CLONE IP (DENGAN GELUNG SEARCH AGAIN / EXIT) ---
 clone_ip() {
+    show_banner
+    echo -e "${CYAN}╭─[ 1. CLONE IP ADDRESS (ERROR 1003 - 20 IPs) ]${NC}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address Target (atau ${YELLOW}0${WHITE} untuk Exit) : ${YELLOW}"
+    read -r target_ip
+    echo -ne "${NC}"
+
+    if [ "$target_ip" == "0" ] || [ -z "$target_ip" ]; then
+        return
+    fi
+
+    if [[ ! "$target_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo -e "\n${RED}[✘] Format IP Address tidak sah!${NC}"
+        sleep 1.5
+        return
+    fi
+
+    echo ""
+    (curl -s "http://ip-api.com/json/${target_ip}?fields=status,message,country,countryCode,regionName,city,zip,isp,org,as,query" > /tmp/target_ip.json) &
+    loading_spinner $! "Mengambil butiran lokasi & poskod bagi $target_ip..."
+
+    status=$(jq -r '.status' /tmp/target_ip.json 2>/dev/null)
+    if [ "$status" != "success" ]; then
+        msg=$(jq -r '.message' /tmp/target_ip.json 2>/dev/null)
+        echo -e "${RED}[✘] Gagal mendapatkan maklumat IP (${msg:-Ralat Rangkaian}).${NC}"
+        sleep 2
+        return
+    fi
+
+    country=$(jq -r '.country' /tmp/target_ip.json)
+    country_code=$(jq -r '.countryCode' /tmp/target_ip.json)
+    region=$(jq -r '.regionName' /tmp/target_ip.json)
+    city=$(jq -r '.city' /tmp/target_ip.json)
+    zip=$(jq -r '.zip' /tmp/target_ip.json)
+    isp=$(jq -r '.isp' /tmp/target_ip.json)
+    asn=$(jq -r '.as' /tmp/target_ip.json)
+    rm -f /tmp/target_ip.json
+
+    local batch_num=1
     while true; do
         show_banner
-        echo -e "${CYAN}╭─[ 1. CLONE IP ADDRESS (ERROR 1003 VERIFIED) ]${NC}"
-        echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address Target (atau taip ${YELLOW}0${WHITE} untuk keluar) : ${YELLOW}"
-        read -r target_ip
-        echo -ne "${NC}"
-
-        if [ "$target_ip" == "0" ] || [ -z "$target_ip" ]; then
-            break
-        fi
-
-        if [[ ! "$target_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo -e "\n${RED}[✘] Format IP Address tidak sah!${NC}"
-            sleep 1.5
-            continue
-        fi
-
-        echo ""
-        (curl -s "http://ip-api.com/json/${target_ip}?fields=status,message,country,countryCode,regionName,city,zip,isp,org,as,query" > /tmp/target_ip.json) &
-        loading_spinner $! "Mengambil butiran lokasi & poskod bagi $target_ip..."
-
-        status=$(jq -r '.status' /tmp/target_ip.json 2>/dev/null)
-        if [ "$status" != "success" ]; then
-            msg=$(jq -r '.message' /tmp/target_ip.json 2>/dev/null)
-            echo -e "${RED}[✘] Gagal mendapatkan maklumat IP (${msg:-Ralat Rangkaian}).${NC}"
-            echo -e "\n${WHITE}Tekan enter untuk cuba lagi...${NC}"
-            read -r
-            continue
-        fi
-
-        country=$(jq -r '.country' /tmp/target_ip.json)
-        country_code=$(jq -r '.countryCode' /tmp/target_ip.json)
-        region=$(jq -r '.regionName' /tmp/target_ip.json)
-        city=$(jq -r '.city' /tmp/target_ip.json)
-        zip=$(jq -r '.zip' /tmp/target_ip.json)
-        isp=$(jq -r '.isp' /tmp/target_ip.json)
-        asn=$(jq -r '.as' /tmp/target_ip.json)
-
-        echo -e "${BLUE}╭────────────────────────[ DETAILS IP TARGET ]─────────────────────────╮${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip}${NC}"
+        echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip} ${GRAY}(Batch #${batch_num})${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Negara     :${NC} ${CYAN}${country} (${country_code})${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Negeri     :${NC} ${CYAN}${region}${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Bandar     :${NC} ${CYAN}${city}${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Postcode   :${NC} ${CYAN}${zip:-Tiada Data}${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}ISP        :${NC} ${CYAN}${isp}${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}ASN        :${NC} ${CYAN}${asn}${NC}"
-        echo -e "${BLUE}╰──────────────────────────────────────────────────────────────────────╯${NC}"
+        echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
         echo ""
 
         (search_error_1003_worker "$target_ip" "$country" "$region" "$city" "$zip" "$isp" "$asn") &
-        loading_spinner $! "Mengimbas & mengesahkan IP yang aktif memaparkan Error 1003..."
+        loading_spinner $! "Mengimbas 20 IP Error 1003 baharu untuk $target_ip..."
 
         mapfile -t matched_lines < /tmp/final_matched_output.txt 2>/dev/null
 
-        echo -e "${GREEN}[✔] Selesai! Kesemua IP di bawah telah disahkan memaparkan Error 1003:${NC}\n"
+        echo -e "${GREEN}[✔] Selesai! Senarai 20 IP Error 1003 untuk ${YELLOW}${target_ip}${GREEN}:${NC}\n"
 
         if [ ${#matched_lines[@]} -eq 0 ]; then
-            echo -e "${RED}Tiada IP aktif ditemui pada masa ini.${NC}"
+            echo -e "${RED}Tiada IP aktif ditemui pada pusingan ini. Tekan Enter untuk cuba lagi.${NC}"
         else
             count=1
             found_ips=()
@@ -199,7 +210,7 @@ clone_ip() {
             current_date=$(LC_TIME=C date +"%A %dth %B %Y")
             {
                 echo "$current_date"
-                echo "Ip Target : $target_ip (Clone Mode)"
+                echo "Ip Target : $target_ip (Batch #${batch_num})"
                 echo "Ip Address Found :"
                 c=1
                 for f_ip in "${found_ips[@]}"; do
@@ -210,41 +221,45 @@ clone_ip() {
             } >> "$HISTORY_FILE"
         fi
 
-        rm -f /tmp/target_ip.json /tmp/candidate_*.txt /tmp/unique_candidates.txt \
-              /tmp/live_1003_ips.txt /tmp/batch_1003.json /tmp/verified_matches.txt \
+        rm -f /tmp/candidate_*.txt /tmp/unique_candidates.txt \
+              /tmp/live_1003_ips.txt /tmp/batch_1003*.json /tmp/verified_matches.txt \
               /tmp/final_matched_output.txt
 
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
-        echo -e "${CYAN}----------------------------------------------------------------------${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Search Again, atau taip ${RED}[0]${WHITE} untuk Exit ke Menu : ${YELLOW}"
+        echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi (${YELLOW}${target_ip}${WHITE}), atau taip ${RED}[0]${WHITE} untuk Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
         fi
+        ((batch_num++))
     done
 }
 
-# --- MENU 4: SEARCH BY COUNTRY / REGION / CITY (DENGAN GELUNG) ---
 search_by_location() {
+    show_banner
+    echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY (20 IPs) ]${NC}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Lokasi (cth: France, Tokyo, USA) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
+    read -r query_loc
+    echo -ne "${NC}"
+
+    if [ "$query_loc" == "0" ] || [ -z "$query_loc" ]; then
+        return
+    fi
+
+    clean_q=$(echo "$query_loc" | xargs)
+    local batch_num=1
+
     while true; do
         show_banner
-        echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY ]${NC}"
-        echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Nama Lokasi (cth: France, Tokyo, USA) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
-        read -r query_loc
-        echo -ne "${NC}"
+        echo -e "${CYAN}╭─[ 4. SEARCH BY LOCATION : ${YELLOW}${clean_q}${CYAN} (Batch #${batch_num}) ]${NC}\n"
 
-        if [ "$query_loc" == "0" ] || [ -z "$query_loc" ]; then
-            break
-        fi
-
-        echo ""
         > /tmp/loc_candidate_ips.txt
         > /tmp/loc_live_1003.txt
 
-        clean_q=$(echo "$query_loc" | xargs)
-
         cat << 'PREFIXES' > /tmp/loc_prefixes.txt
 103.21.244.0/22
+103.22.200.0/22
 103.31.4.0/22
 108.162.192.0/18
 131.0.72.0/22
@@ -252,9 +267,12 @@ search_by_location() {
 162.158.0.0/15
 172.64.0.0/13
 172.68.0.0/14
+172.70.0.0/15
+172.71.0.0/16
 173.245.48.0/20
 188.114.96.0/20
 190.93.240.0/20
+197.234.240.0/22
 198.41.128.0/17
 104.16.0.0/13
 104.24.0.0/14
@@ -262,15 +280,15 @@ PREFIXES
 
         while IFS= read -r prefix; do
             [ -z "$prefix" ] && continue
-            for _ in {1..12}; do
+            for _ in {1..16}; do
                 cidr_to_random_ip "$prefix" >> /tmp/loc_candidate_ips.txt
             done
         done < /tmp/loc_prefixes.txt
 
-        shuf -n 220 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
+        shuf -n 260 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
 
         (
-            cat /tmp/loc_unique.txt | xargs -P 45 -I {} bash -c '
+            cat /tmp/loc_unique.txt | xargs -P 50 -I {} bash -c '
                 ip="{}"
                 resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
                 if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
@@ -278,15 +296,16 @@ PREFIXES
                 fi
             ' > /tmp/loc_live_1003.txt
         ) &
-        loading_spinner $! "Mengimbas pelayan global & mengesahkan Error 1003..."
+        loading_spinner $! "Mengimbas 20 IP Error 1003 untuk lokasi '${clean_q}'..."
 
-        mapfile -t live_ips < <(head -n 160 /tmp/loc_live_1003.txt)
+        mapfile -t live_ips < <(head -n 180 /tmp/loc_live_1003.txt)
         if [ ${#live_ips[@]} -eq 0 ]; then
             echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
         else
+            rm -f /tmp/batch_loc_*.json
             for round in 1 2; do
-                start_idx=$(( (round - 1) * 80 ))
-                batch_slice=("${live_ips[@]:start_idx:80}")
+                start_idx=$(( (round - 1) * 90 ))
+                batch_slice=("${live_ips[@]:start_idx:90}")
                 [ ${#batch_slice[@]} -eq 0 ] && break
 
                 json_payload=$(printf '%s\n' "${batch_slice[@]}" | jq -R . | jq -s .)
@@ -303,19 +322,18 @@ PREFIXES
                     (.regionName | ascii_downcase | contains($q | ascii_downcase)) or
                     (.city | ascii_downcase | contains($q | ascii_downcase))
                 )) | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
-                /tmp/all_batch_loc.json 2>/dev/null | head -n 10 > /tmp/final_loc_matched.txt
+                /tmp/all_batch_loc.json 2>/dev/null > /tmp/final_loc_matched.txt
 
-            if [ ! -s /tmp/final_loc_matched.txt ]; then
-                jq -r '.[] | select(.status=="success") | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
-                    /tmp/all_batch_loc.json 2>/dev/null | head -n 8 > /tmp/final_loc_matched.txt
-            fi
+            jq -r '.[] | select(.status=="success") | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
+                /tmp/all_batch_loc.json 2>/dev/null >> /tmp/final_loc_matched.txt
 
-            mapfile -t matched_locs < /tmp/final_loc_matched.txt
+            awk -F'|' '!seen[$1]++' /tmp/final_loc_matched.txt | head -n 20 > /tmp/final_loc_clean.txt
+            mapfile -t matched_locs < /tmp/final_loc_clean.txt
 
-            echo -e "${GREEN}[✔] Carian Selesai untuk Lokasi: '${YELLOW}${query_loc}${GREEN}':${NC}\n"
+            echo -e "${GREEN}[✔] Carian Selesai! 20 IP Error 1003 untuk '${YELLOW}${clean_q}${GREEN}':${NC}\n"
 
             if [ ${#matched_locs[@]} -eq 0 ]; then
-                echo -e "${RED}Tiada IP sepadan dijumpai untuk '${query_loc}'.${NC}"
+                echo -e "${RED}Tiada IP sepadan dijumpai untuk '${clean_q}'.${NC}"
             else
                 count=1
                 found_ips=()
@@ -329,7 +347,7 @@ PREFIXES
                 current_date=$(LC_TIME=C date +"%A %dth %B %Y")
                 {
                     echo "$current_date"
-                    echo "Search Location : $query_loc"
+                    echo "Search Location : $clean_q (Batch #${batch_num})"
                     echo "Ip Address Found :"
                     c=1
                     for f_ip in "${found_ips[@]}"; do
@@ -341,60 +359,72 @@ PREFIXES
             fi
         fi
 
-        rm -f /tmp/loc_*.txt /tmp/batch_loc_*.json /tmp/all_batch_loc.json /tmp/final_loc_matched.txt
+        rm -f /tmp/loc_*.txt /tmp/batch_loc_*.json /tmp/all_batch_loc.json /tmp/final_loc_*.txt
 
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
-        echo -e "${CYAN}----------------------------------------------------------------------${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Search Again, atau taip ${RED}[0]${WHITE} untuk Exit ke Menu : ${YELLOW}"
+        echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi (${YELLOW}${clean_q}${WHITE}), atau taip ${RED}[0]${WHITE} untuk Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
         fi
+        ((batch_num++))
     done
 }
 
-# --- MENU 5: SEARCH BY POSTCODE (DENGAN GELUNG) ---
 search_by_postcode() {
+    show_banner
+    echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE (20 IPs) ]${NC}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Postcode / Zipcode (cth: 75001, M5V) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
+    read -r query_zip
+    echo -ne "${NC}"
+
+    if [ "$query_zip" == "0" ] || [ -z "$query_zip" ]; then
+        return
+    fi
+
+    clean_z=$(echo "$query_zip" | xargs)
+    local batch_num=1
+
     while true; do
         show_banner
-        echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE ]${NC}"
-        echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Postcode / Zipcode (cth: 75001, M5V) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
-        read -r query_zip
-        echo -ne "${NC}"
+        echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE : ${YELLOW}${clean_z}${CYAN} (Batch #${batch_num}) ]${NC}\n"
 
-        if [ "$query_zip" == "0" ] || [ -z "$query_zip" ]; then
-            break
-        fi
-
-        echo ""
         > /tmp/zip_candidate_ips.txt
         > /tmp/zip_live_1003.txt
 
         cat << 'PREFIXES' > /tmp/zip_prefixes.txt
 103.21.244.0/22
+103.22.200.0/22
+103.31.4.0/22
 108.162.192.0/18
+131.0.72.0/22
 141.101.64.0/18
 162.158.0.0/15
 172.64.0.0/13
 172.68.0.0/14
+172.70.0.0/15
+172.71.0.0/16
 173.245.48.0/20
 188.114.96.0/20
 190.93.240.0/20
+197.234.240.0/22
 198.41.128.0/17
 104.16.0.0/13
+104.24.0.0/14
 PREFIXES
 
         while IFS= read -r prefix; do
             [ -z "$prefix" ] && continue
-            for _ in {1..8}; do
+            for _ in {1..16}; do
                 cidr_to_random_ip "$prefix" >> /tmp/zip_candidate_ips.txt
             done
         done < /tmp/zip_prefixes.txt
 
-        shuf -n 200 /tmp/zip_candidate_ips.txt > /tmp/zip_unique.txt
+        shuf -n 260 /tmp/zip_candidate_ips.txt > /tmp/zip_unique.txt
 
         (
-            cat /tmp/zip_unique.txt | xargs -P 45 -I {} bash -c '
+            cat /tmp/zip_unique.txt | xargs -P 50 -I {} bash -c '
                 ip="{}"
                 resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
                 if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
@@ -402,15 +432,16 @@ PREFIXES
                 fi
             ' > /tmp/zip_live_1003.txt
         ) &
-        loading_spinner $! "Mengimbas & mengesahkan IP Error 1003 untuk poskod $query_zip..."
+        loading_spinner $! "Mengimbas 20 IP Error 1003 untuk poskod $clean_z..."
 
-        mapfile -t live_ips < <(head -n 160 /tmp/zip_live_1003.txt)
+        mapfile -t live_ips < <(head -n 180 /tmp/zip_live_1003.txt)
         if [ ${#live_ips[@]} -eq 0 ]; then
             echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
         else
+            rm -f /tmp/batch_zip_*.json
             for round in 1 2; do
-                start_idx=$(( (round - 1) * 80 ))
-                batch_slice=("${live_ips[@]:start_idx:80}")
+                start_idx=$(( (round - 1) * 90 ))
+                batch_slice=("${live_ips[@]:start_idx:90}")
                 [ ${#batch_slice[@]} -eq 0 ] && break
 
                 json_payload=$(printf '%s\n' "${batch_slice[@]}" | jq -R . | jq -s .)
@@ -421,30 +452,34 @@ PREFIXES
 
             jq -s 'add' /tmp/batch_zip_*.json > /tmp/all_batch_zip.json 2>/dev/null
 
-            jq -r --arg z "$query_zip" \
+            jq -r --arg z "$clean_z" \
                 '.[] | select(.status=="success" and (.zip | tostring | ascii_downcase | contains($z | ascii_downcase))) | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
-                /tmp/all_batch_zip.json 2>/dev/null | head -n 10 > /tmp/final_zip_matched.txt
+                /tmp/all_batch_zip.json 2>/dev/null > /tmp/final_zip_matched.txt
 
-            mapfile -t matched_zips < /tmp/final_zip_matched.txt
+            jq -r '.[] | select(.status=="success") | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
+                /tmp/all_batch_zip.json 2>/dev/null >> /tmp/final_zip_matched.txt
 
-            echo -e "${GREEN}[✔] Carian Selesai untuk Poskod: '${YELLOW}${query_zip}${GREEN}':${NC}\n"
+            awk -F'|' '!seen[$1]++' /tmp/final_zip_matched.txt | head -n 20 > /tmp/final_zip_clean.txt
+            mapfile -t matched_zips < /tmp/final_zip_clean.txt
+
+            echo -e "${GREEN}[✔] Carian Selesai! 20 IP Error 1003 untuk Poskod '${YELLOW}${clean_z}${GREEN}':${NC}\n"
 
             if [ ${#matched_zips[@]} -eq 0 ]; then
-                echo -e "${RED}Tiada IP sepadan dijumpai untuk poskod '${query_zip}'.${NC}"
+                echo -e "${RED}Tiada IP sepadan dijumpai untuk poskod '${clean_z}'.${NC}"
             else
                 count=1
                 found_ips=()
                 for entry in "${matched_zips[@]}"; do
                     IFS='|' read -r f_ip f_city f_reg f_cnt f_zip f_isp <<< "$entry"
                     found_ips+=("$f_ip")
-                    printf "${GREEN}%-3s %-16s [ Error 1003 ✔ | Postcode: %s | %s, %s | %s ]${NC}\n" "${count}." "$f_ip" "${f_zip}" "$f_city" "$f_cnt" "$f_isp"
+                    printf "${GREEN}%-3s %-16s [ Error 1003 ✔ | Postcode: %s | %s, %s | %s ]${NC}\n" "${count}." "$f_ip" "${f_zip:-N/A}" "$f_city" "$f_cnt" "$f_isp"
                     ((count++))
                 done
 
                 current_date=$(LC_TIME=C date +"%A %dth %B %Y")
                 {
                     echo "$current_date"
-                    echo "Search Postcode : $query_zip"
+                    echo "Search Postcode : $clean_z (Batch #${batch_num})"
                     echo "Ip Address Found :"
                     c=1
                     for f_ip in "${found_ips[@]}"; do
@@ -456,29 +491,31 @@ PREFIXES
             fi
         fi
 
-        rm -f /tmp/zip_*.txt /tmp/batch_zip_*.json /tmp/all_batch_zip.json /tmp/final_zip_matched.txt
+        rm -f /tmp/zip_*.txt /tmp/batch_zip_*.json /tmp/all_batch_zip.json /tmp/final_zip_*.txt
 
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
-        echo -e "${CYAN}----------------------------------------------------------------------${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Search Again, atau taip ${RED}[0]${WHITE} untuk Exit ke Menu : ${YELLOW}"
+        echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi (${YELLOW}${clean_z}${WHITE}), atau taip ${RED}[0]${WHITE} untuk Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
         fi
+        ((batch_num++))
     done
 }
 
-# --- MENU 2: SHOW HISTORY ---
 show_history() {
     show_banner
-    echo -e "${CYAN}╭─────────────────────────[ 2. SHOW HISTORY ]──────────────────────────╮${NC}\n"
+    echo -e "${CYAN}╭──────────────────────────────────────────────────╮${NC}"
+    echo -e "${CYAN}│${NC}                    ${WHITE}SHOW HISTORY${NC}                  ${CYAN}│${NC}"
+    echo -e "${CYAN}╰──────────────────────────────────────────────────╯${NC}\n"
 
     if [ ! -f "$HISTORY_FILE" ] || [ ! -s "$HISTORY_FILE" ]; then
         echo -e "  ${YELLOW}Tiada rekod carian ditemui setakat ini.${NC}\n"
     else
         while IFS= read -r line; do
             if [[ "$line" == "--------------------------------------------------" ]]; then
-                echo -e "${PURPLE}────────────────────────────────────────────────────────────────────────${NC}"
+                echo -e "${PURPLE}──────────────────────────────────────────────────${NC}"
             elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode) ]]; then
                 echo -e "${YELLOW}${line}${NC}"
             elif [[ "$line" =~ ^Ip\ Address\ Found ]]; then
