@@ -29,4 +29,5 @@
 Log masuk ke VPS anda sebagai **`root`**, kemudian salin dan jalankan arahan di bawah:
 
 ```bash
-wget -O installer.sh [https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main/installer.sh](https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main/installer.sh) && chmod +x installer.sh && ./installer.sh
+wget -O installer.sh https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main/installer.sh && chmod +x installer.sh && ./installer.sh
+
