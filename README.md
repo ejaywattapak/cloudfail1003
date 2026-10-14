@@ -26,10 +26,14 @@
 
 ## 🚀 One-Line Installer (wget)
 
-Log masuk ke VPS anda sebagai **`root`**, kemudian salin dan jalankan arahan di bawah:
+Install EJAYWATT CLOUDFAIL directly on your VPS using a single command.
+
+
 
 ```bash
 wget -O installer.sh https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main/installer.sh && chmod +x installer.sh && ./installer.sh
+
+
 
 Requirements: Ubuntu, Debian, or Rocky Linux with root access.
 
