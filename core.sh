@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - GLOBAL BGP & GEOIP ENGINE (WORLDWIDE)
+# EJAYWATT CLOUDFAIL - GLOBAL BGP & GEOIP ENGINE v4.0
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -228,11 +228,11 @@ clone_ip() {
     read -r
 }
 
-# --- ENJIN 2: SEARCH BY COUNTRY / REGION / CITY (MENU 4 - GLOBAL BGP) ---
+# --- ENJIN 2: SEARCH BY COUNTRY / REGION / CITY (MENU 4 - DIRECT RIPE & GLOBAL BGP) ---
 search_by_location() {
     show_banner
     echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY ]${NC}"
-    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Nama Lokasi (cth: France, Paris, Tokyo, USA) : ${YELLOW}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Nama Lokasi / Kod Negara (cth: France, FR, USA, US, Tokyo) : ${YELLOW}"
     read -r query_loc
     echo -ne "${NC}"
 
@@ -248,10 +248,36 @@ search_by_location() {
     > /tmp/loc_live_1003.txt
     > /tmp/loc_prefixes.txt
 
-    # 1. Cari kod negara global (jika pengguna masukkan nama penuh seperti France -> FR)
     clean_q=$(echo "$query_loc" | xargs)
-    
-    # Tarik blok BGP global Cloudflare & Anycast antarabangsa
+    q_lower=$(echo "$clean_q" | tr '[:upper:]' '[:lower:]')
+
+    # Pemetaan kod negara automatik (menyokong nama penuh & singkatan)
+    cc=""
+    case "$q_lower" in
+        france|fr) cc="FR" ;;
+        usa|us|united states|america) cc="US" ;;
+        germany|de|deutschland) cc="DE" ;;
+        uk|united kingdom|britain|england|gb) cc="GB" ;;
+        japan|jp) cc="JP" ;;
+        canada|ca) cc="CA" ;;
+        singapore|sg) cc="SG" ;;
+        malaysia|my) cc="MY" ;;
+        indonesia|id) cc="ID" ;;
+        netherlands|nl|holland) cc="NL" ;;
+        australia|au) cc="AU" ;;
+        brazil|br) cc="BR" ;;
+        india|in) cc="IN" ;;
+        korea|kr|south korea) cc="KR" ;;
+        *) cc="" ;;
+    esac
+
+    # Jika pengguna masukkan nama negara/kod, tarik blok rasmi RIPE / APNIC / ARIN
+    if [ -n "$cc" ]; then
+        curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=${cc}" \
+            | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 80 >> /tmp/loc_prefixes.txt
+    fi
+
+    # Sentiasa sertakan blok global Cloudflare / Anycast utama
     cat << 'PREFIXES' >> /tmp/loc_prefixes.txt
 103.21.244.0/22
 103.31.4.0/22
@@ -267,19 +293,12 @@ search_by_location() {
 104.16.0.0/13
 PREFIXES
 
-    # 2. Tarik blok IP rasmi seluruh dunia melalui RIPEstat & BGP Global
-    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=FR" \
-        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 30 >> /tmp/loc_prefixes.txt
-    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=US" \
-        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 30 >> /tmp/loc_prefixes.txt
-    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=DE" \
-        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 20 >> /tmp/loc_prefixes.txt
-    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=GB" \
-        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 20 >> /tmp/loc_prefixes.txt
-    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=JP" \
-        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 20 >> /tmp/loc_prefixes.txt
+    # Tambah blok tambahan dari negara popular lain supaya carian bandar luar negara sentiasa kena
+    for code in US FR DE GB JP CA SG NL AU; do
+        curl -s --max-time 4 "https://stat.ripe.net/data/country-resource-list/data.json?resource=${code}" \
+            | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 25 >> /tmp/loc_prefixes.txt
+    done
 
-    # Jana IP rawak daripada semua blok di seluruh dunia
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
         for _ in {1..8}; do
@@ -287,10 +306,10 @@ PREFIXES
         done
     done < <(shuf /tmp/loc_prefixes.txt)
 
-    shuf -n 220 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
+    shuf -n 250 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
 
     (
-        cat /tmp/loc_unique.txt | xargs -P 45 -I {} bash -c '
+        cat /tmp/loc_unique.txt | xargs -P 50 -I {} bash -c '
             ip="{}"
             resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
             if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
@@ -300,31 +319,30 @@ PREFIXES
     ) &
     loading_spinner $! "Mengimbas pelayan global & mengesahkan Error 1003 untuk '${query_loc}'..."
 
-    mapfile -t live_ips < <(head -n 180 /tmp/loc_live_1003.txt)
-    if [ ${#live_ips[@]} -eq 0 ]; then
-        echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
-        echo -e "\n${WHITE}Tekan enter untuk balik ke menu${NC}"
-        read -r
-        return
-    fi
+    mapfile -t live_ips < <(head -n 200 /tmp/loc_live_1003.txt)
+    [ ${#live_ips[@]} -eq 0 ] && { echo -e "\n${RED}Tiada IP aktif dijumpai.${NC}\n${WHITE}Tekan enter untuk balik ke menu${NC}"; read -r; return; }
 
-    # Semak batch besar (hingga 180 IP sekaligus)
     for round in 1 2; do
-        start_idx=$(( (round - 1) * 90 ))
-        batch_slice=("${live_ips[@]:start_idx:90}")
+        start_idx=$(( (round - 1) * 100 ))
+        batch_slice=("${live_ips[@]:start_idx:100}")
         [ ${#batch_slice[@]} -eq 0 ] && break
 
         json_payload=$(printf '%s\n' "${batch_slice[@]}" | jq -R . | jq -s .)
-        curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,regionName,city,zip,isp,query" \
+        curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,countryCode,regionName,city,zip,isp,query" \
              -H "Content-Type: application/json" \
              -d "$json_payload" > "/tmp/batch_loc_${round}.json"
     done
 
     jq -s 'add' /tmp/batch_loc_*.json > /tmp/all_batch_loc.json 2>/dev/null
 
-    # Tapis padanan fleksibel untuk semua negara, negeri, daerah, dan bandar di bumi
-    jq -r --arg q "$clean_q" \
-        '.[] | select(.status=="success" and (.country | ascii_downcase | contains($q | ascii_downcase) or (.regionName | ascii_downcase | contains($q | ascii_downcase)) or (.city | ascii_downcase | contains($q | ascii_downcase)))) | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
+    # Tapis padanan fleksibel (menyokong nama negara, kod negara, negeri, bandar)
+    jq -r --arg q "$clean_q" --arg cc "$cc" \
+        '.[] | select(.status=="success" and (
+            (.country | ascii_downcase | contains($q | ascii_downcase)) or
+            (.regionName | ascii_downcase | contains($q | ascii_downcase)) or
+            (.city | ascii_downcase | contains($q | ascii_downcase)) or
+            (if $cc != "" then .countryCode == $cc else false end)
+        )) | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
         /tmp/all_batch_loc.json 2>/dev/null | head -n 10 > /tmp/final_loc_matched.txt
 
     mapfile -t matched_locs < /tmp/final_loc_matched.txt
@@ -332,7 +350,7 @@ PREFIXES
     echo -e "${GREEN}[✔] Carian Selesai untuk Lokasi: '${YELLOW}${query_loc}${GREEN}':${NC}\n"
 
     if [ ${#matched_locs[@]} -eq 0 ]; then
-        echo -e "${RED}Tiada IP sepadan dijumpai untuk '${query_loc}'. Sila cuba ejaan lain (cth: France, Paris, US).${NC}"
+        echo -e "${RED}Tiada IP sepadan dijumpai untuk '${query_loc}'. Sila cuba bandar lain (cth: Paris, Tokyo, New York).${NC}"
     else
         count=1
         found_ips=()
@@ -367,7 +385,7 @@ PREFIXES
 search_by_postcode() {
     show_banner
     echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE ]${NC}"
-    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Postcode / Zipcode (cth: 75001, M5V, 75008) : ${YELLOW}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Postcode / Zipcode (cth: 75001, M5V) : ${YELLOW}"
     read -r query_zip
     echo -ne "${NC}"
 
@@ -397,12 +415,10 @@ search_by_postcode() {
 104.16.0.0/13
 PREFIXES
 
-    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=FR" \
-        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 25 >> /tmp/zip_prefixes.txt
-    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=US" \
-        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 25 >> /tmp/zip_prefixes.txt
-    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=GB" \
-        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 20 >> /tmp/zip_prefixes.txt
+    for code in US FR DE GB JP CA SG; do
+        curl -s --max-time 4 "https://stat.ripe.net/data/country-resource-list/data.json?resource=${code}" \
+            | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 25 >> /tmp/zip_prefixes.txt
+    done
 
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
@@ -425,12 +441,7 @@ PREFIXES
     loading_spinner $! "Mengimbas & mengesahkan IP Error 1003 untuk poskod $query_zip..."
 
     mapfile -t live_ips < <(head -n 180 /tmp/zip_live_1003.txt)
-    if [ ${#live_ips[@]} -eq 0 ]; then
-        echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
-        echo -e "\n${WHITE}Tekan enter untuk balik ke menu${NC}"
-        read -r
-        return
-    fi
+    [ ${#live_ips[@]} -eq 0 ] && { echo -e "\n${RED}Tiada IP aktif dijumpai.${NC}\n${WHITE}Tekan enter untuk balik ke menu${NC}"; read -r; return; }
 
     for round in 1 2; do
         start_idx=$(( (round - 1) * 90 ))
