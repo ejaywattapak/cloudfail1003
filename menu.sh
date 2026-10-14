@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU (FIXED BORDER)
+# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU v6.0
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -53,19 +53,21 @@ while true; do
     echo -e "${CYAN}│${NC}                    ${WHITE}MAIN MENU${NC}                     ${CYAN}│${NC}"
     echo -e "${CYAN}├──────────────────────────────────────────────────┤${NC}"
     echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Clone IP${NC}        ${GRAY}(Cari ikut IP target)${NC}    ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Show History${NC}    ${GRAY}(Papar rekod lepas)${NC}      ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Clone Twin IP${NC}   ${GRAY}(Cari sepasang IP kembar)${NC}${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[3]${NC} ${WHITE}Show History${NC}    ${GRAY}(Papar rekod lepas)${NC}      ${CYAN}│${NC}"
     echo -e "${CYAN}│${NC}   ${YELLOW}[4]${NC} ${WHITE}Search Country${NC}  ${GRAY}(Cari ikut negara/bandar)${NC}  ${CYAN}│${NC}"
     echo -e "${CYAN}│${NC}   ${YELLOW}[5]${NC} ${WHITE}Search Postcode${NC} ${GRAY}(Cari ikut poskod)${NC}        ${CYAN}│${NC}"
     echo -e "${CYAN}│${NC}   ${RED}[6]${NC} ${WHITE}Exit${NC}            ${GRAY}(Keluar ke terminal)${NC}     ${CYAN}│${NC}"
     echo -e "${CYAN}╰──────────────────────────────────────────────────╯${NC}"
     echo -e "${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}\n"
-    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1/2/4/5/6)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
+    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1-6)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
     read -r choice
     echo -ne "${NC}"
 
     case $choice in
         1) clone_ip ;;
-        2) show_history ;;
+        2) clone_twin_ip ;;
+        3) show_history ;;
         4) search_by_location ;;
         5) search_by_postcode ;;
         6)
@@ -73,7 +75,7 @@ while true; do
             exit 0
             ;;
         *)
-            echo -e "\n${RED}[!] Pilihan tidak sah. Sila pilih 1, 2, 4, 5, atau 6.${NC}"
+            echo -e "\n${RED}[!] Pilihan tidak sah. Sila pilih 1 hingga 6.${NC}"
             sleep 1.2
             ;;
     esac
