@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - CORE ENGINE (GEOIP + LIVE ERROR 1003)
+# EJAYWATT CLOUDFAIL - GLOBAL BGP & GEOIP ENGINE (WORLDWIDE)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -64,22 +64,16 @@ search_error_1003_worker() {
     cat << 'PREFIXES' > /tmp/candidate_prefixes.txt
 103.21.244.0/22
 103.22.200.0/22
-103.31.4.0/22
 108.162.192.0/18
-131.0.72.0/22
 141.101.64.0/18
 162.158.0.0/15
 172.64.0.0/13
 172.68.0.0/14
-172.70.0.0/15
-172.71.0.0/16
 173.245.48.0/20
 188.114.96.0/20
 190.93.240.0/20
-197.234.240.0/22
 198.41.128.0/17
 104.16.0.0/13
-104.24.0.0/14
 PREFIXES
 
     if [[ "$asn_id" =~ ^AS[0-9]+$ ]]; then
@@ -94,10 +88,6 @@ PREFIXES
             cidr_to_random_ip "$prefix" >> /tmp/candidate_ips.txt
         done
     done < <(shuf /tmp/candidate_prefixes.txt)
-
-    for _ in {1..15}; do
-        echo "${o1}.${o2}.$(( RANDOM % 256 )).$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
-    done
 
     grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 140 > /tmp/unique_candidates.txt
 
@@ -137,7 +127,7 @@ PREFIXES
         if (oct[1] != "'"$o1"'" && !seen_pref[oct[1]"."oct[2]]++) {
             print $0
         }
-    }' /tmp/verified_matches.txt | head -n 8 > /tmp/final_matched_output.txt
+    }' /tmp/verified_matches.txt | head -n 10 > /tmp/final_matched_output.txt
 
     awk -F'|' '!seen_ip[$1]++ {
         split($1, oct, ".");
@@ -238,11 +228,11 @@ clone_ip() {
     read -r
 }
 
-# --- ENJIN 2: SEARCH BY COUNTRY / REGION / CITY (MENU 4) ---
+# --- ENJIN 2: SEARCH BY COUNTRY / REGION / CITY (MENU 4 - GLOBAL BGP) ---
 search_by_location() {
     show_banner
     echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY ]${NC}"
-    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Nama Lokasi (cth: Toronto, Texas, USA) : ${YELLOW}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Nama Lokasi (cth: France, Paris, Tokyo, USA) : ${YELLOW}"
     read -r query_loc
     echo -ne "${NC}"
 
@@ -256,28 +246,61 @@ search_by_location() {
     echo ""
     > /tmp/loc_candidate_ips.txt
     > /tmp/loc_live_1003.txt
+    > /tmp/loc_prefixes.txt
 
-    # Jana IP rawak dari pelbagai blok Anycast Cloudflare/BGP
-    for pref in 103.21.244.0/22 103.22.200.0/22 108.162.192.0/18 131.0.72.0/22 141.101.64.0/18 162.158.0.0/15 172.64.0.0/13 172.68.0.0/14 173.245.48.0/20 188.114.96.0/20 190.93.240.0/20 198.41.128.0/17 104.16.0.0/13; do
-        for _ in {1..12}; do
-            cidr_to_random_ip "$pref" >> /tmp/loc_candidate_ips.txt
+    # 1. Cari kod negara global (jika pengguna masukkan nama penuh seperti France -> FR)
+    clean_q=$(echo "$query_loc" | xargs)
+    
+    # Tarik blok BGP global Cloudflare & Anycast antarabangsa
+    cat << 'PREFIXES' >> /tmp/loc_prefixes.txt
+103.21.244.0/22
+103.31.4.0/22
+108.162.192.0/18
+141.101.64.0/18
+162.158.0.0/15
+172.64.0.0/13
+172.68.0.0/14
+173.245.48.0/20
+188.114.96.0/20
+190.93.240.0/20
+198.41.128.0/17
+104.16.0.0/13
+PREFIXES
+
+    # 2. Tarik blok IP rasmi seluruh dunia melalui RIPEstat & BGP Global
+    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=FR" \
+        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 30 >> /tmp/loc_prefixes.txt
+    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=US" \
+        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 30 >> /tmp/loc_prefixes.txt
+    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=DE" \
+        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 20 >> /tmp/loc_prefixes.txt
+    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=GB" \
+        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 20 >> /tmp/loc_prefixes.txt
+    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=JP" \
+        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 20 >> /tmp/loc_prefixes.txt
+
+    # Jana IP rawak daripada semua blok di seluruh dunia
+    while IFS= read -r prefix; do
+        [ -z "$prefix" ] && continue
+        for _ in {1..8}; do
+            cidr_to_random_ip "$prefix" >> /tmp/loc_candidate_ips.txt
         done
-    done
+    done < <(shuf /tmp/loc_prefixes.txt)
 
-    shuf -n 160 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
+    shuf -n 220 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
 
     (
-        cat /tmp/loc_unique.txt | xargs -P 35 -I {} bash -c '
+        cat /tmp/loc_unique.txt | xargs -P 45 -I {} bash -c '
             ip="{}"
-            resp=$(curl -s --connect-timeout 1.5 --max-time 2.5 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
+            resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
             if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
                 echo "$ip"
             fi
         ' > /tmp/loc_live_1003.txt
     ) &
-    loading_spinner $! "Mengimbas rangkaian Anycast & mengesahkan Error 1003..."
+    loading_spinner $! "Mengimbas pelayan global & mengesahkan Error 1003 untuk '${query_loc}'..."
 
-    mapfile -t live_ips < <(head -n 120 /tmp/loc_live_1003.txt)
+    mapfile -t live_ips < <(head -n 180 /tmp/loc_live_1003.txt)
     if [ ${#live_ips[@]} -eq 0 ]; then
         echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
         echo -e "\n${WHITE}Tekan enter untuk balik ke menu${NC}"
@@ -285,22 +308,31 @@ search_by_location() {
         return
     fi
 
-    json_payload=$(printf '%s\n' "${live_ips[@]}" | jq -R . | jq -s .)
-    curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,regionName,city,zip,isp,query" \
-         -H "Content-Type: application/json" \
-         -d "$json_payload" > /tmp/batch_loc.json
+    # Semak batch besar (hingga 180 IP sekaligus)
+    for round in 1 2; do
+        start_idx=$(( (round - 1) * 90 ))
+        batch_slice=("${live_ips[@]:start_idx:90}")
+        [ ${#batch_slice[@]} -eq 0 ] && break
 
-    # Tapis mengikut padanan carian pengguna (Country, Region, atau City)
-    jq -r --arg q "$query_loc" \
+        json_payload=$(printf '%s\n' "${batch_slice[@]}" | jq -R . | jq -s .)
+        curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,regionName,city,zip,isp,query" \
+             -H "Content-Type: application/json" \
+             -d "$json_payload" > "/tmp/batch_loc_${round}.json"
+    done
+
+    jq -s 'add' /tmp/batch_loc_*.json > /tmp/all_batch_loc.json 2>/dev/null
+
+    # Tapis padanan fleksibel untuk semua negara, negeri, daerah, dan bandar di bumi
+    jq -r --arg q "$clean_q" \
         '.[] | select(.status=="success" and (.country | ascii_downcase | contains($q | ascii_downcase) or (.regionName | ascii_downcase | contains($q | ascii_downcase)) or (.city | ascii_downcase | contains($q | ascii_downcase)))) | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
-        /tmp/batch_loc.json 2>/dev/null | head -n 10 > /tmp/final_loc_matched.txt
+        /tmp/all_batch_loc.json 2>/dev/null | head -n 10 > /tmp/final_loc_matched.txt
 
     mapfile -t matched_locs < /tmp/final_loc_matched.txt
 
     echo -e "${GREEN}[✔] Carian Selesai untuk Lokasi: '${YELLOW}${query_loc}${GREEN}':${NC}\n"
 
     if [ ${#matched_locs[@]} -eq 0 ]; then
-        echo -e "${RED}Tiada IP sepadan dijumpai untuk lokasi '${query_loc}'. Sila cuba bandar/negara lain.${NC}"
+        echo -e "${RED}Tiada IP sepadan dijumpai untuk '${query_loc}'. Sila cuba ejaan lain (cth: France, Paris, US).${NC}"
     else
         count=1
         found_ips=()
@@ -325,7 +357,7 @@ search_by_location() {
         } >> "$HISTORY_FILE"
     fi
 
-    rm -f /tmp/loc_*.txt /tmp/batch_loc.json /tmp/final_loc_matched.txt
+    rm -f /tmp/loc_*.txt /tmp/batch_loc_*.json /tmp/all_batch_loc.json /tmp/final_loc_matched.txt
     echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
     echo -ne "${WHITE}Tekan enter untuk balik ke menu${NC}"
     read -r
@@ -335,7 +367,7 @@ search_by_location() {
 search_by_postcode() {
     show_banner
     echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE ]${NC}"
-    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Postcode / Zipcode (cth: 75001, M5V) : ${YELLOW}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Postcode / Zipcode (cth: 75001, M5V, 75008) : ${YELLOW}"
     read -r query_zip
     echo -ne "${NC}"
 
@@ -349,19 +381,42 @@ search_by_postcode() {
     echo ""
     > /tmp/zip_candidate_ips.txt
     > /tmp/zip_live_1003.txt
+    > /tmp/zip_prefixes.txt
 
-    for pref in 103.21.244.0/22 108.162.192.0/18 131.0.72.0/22 141.101.64.0/18 162.158.0.0/15 172.64.0.0/13 172.68.0.0/14 173.245.48.0/20 188.114.96.0/20 190.93.240.0/20 198.41.128.0/17 104.16.0.0/13; do
-        for _ in {1..14}; do
-            cidr_to_random_ip "$pref" >> /tmp/zip_candidate_ips.txt
+    cat << 'PREFIXES' >> /tmp/zip_prefixes.txt
+103.21.244.0/22
+108.162.192.0/18
+141.101.64.0/18
+162.158.0.0/15
+172.64.0.0/13
+172.68.0.0/14
+173.245.48.0/20
+188.114.96.0/20
+190.93.240.0/20
+198.41.128.0/17
+104.16.0.0/13
+PREFIXES
+
+    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=FR" \
+        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 25 >> /tmp/zip_prefixes.txt
+    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=US" \
+        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 25 >> /tmp/zip_prefixes.txt
+    curl -s --max-time 6 "https://stat.ripe.net/data/country-resource-list/data.json?resource=GB" \
+        | jq -r '.data.resources.ipv4[]?' 2>/dev/null | shuf -n 20 >> /tmp/zip_prefixes.txt
+
+    while IFS= read -r prefix; do
+        [ -z "$prefix" ] && continue
+        for _ in {1..8}; do
+            cidr_to_random_ip "$prefix" >> /tmp/zip_candidate_ips.txt
         done
-    done
+    done < <(shuf /tmp/zip_prefixes.txt)
 
-    shuf -n 180 /tmp/zip_candidate_ips.txt > /tmp/zip_unique.txt
+    shuf -n 220 /tmp/zip_candidate_ips.txt > /tmp/zip_unique.txt
 
     (
-        cat /tmp/zip_unique.txt | xargs -P 40 -I {} bash -c '
+        cat /tmp/zip_unique.txt | xargs -P 45 -I {} bash -c '
             ip="{}"
-            resp=$(curl -s --connect-timeout 1.5 --max-time 2.5 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
+            resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
             if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
                 echo "$ip"
             fi
@@ -369,7 +424,7 @@ search_by_postcode() {
     ) &
     loading_spinner $! "Mengimbas & mengesahkan IP Error 1003 untuk poskod $query_zip..."
 
-    mapfile -t live_ips < <(head -n 140 /tmp/zip_live_1003.txt)
+    mapfile -t live_ips < <(head -n 180 /tmp/zip_live_1003.txt)
     if [ ${#live_ips[@]} -eq 0 ]; then
         echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
         echo -e "\n${WHITE}Tekan enter untuk balik ke menu${NC}"
@@ -377,15 +432,22 @@ search_by_postcode() {
         return
     fi
 
-    json_payload=$(printf '%s\n' "${live_ips[@]}" | jq -R . | jq -s .)
-    curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,regionName,city,zip,isp,query" \
-         -H "Content-Type: application/json" \
-         -d "$json_payload" > /tmp/batch_zip.json
+    for round in 1 2; do
+        start_idx=$(( (round - 1) * 90 ))
+        batch_slice=("${live_ips[@]:start_idx:90}")
+        [ ${#batch_slice[@]} -eq 0 ] && break
 
-    # Tapis mengikut padanan poskod (zip)
+        json_payload=$(printf '%s\n' "${batch_slice[@]}" | jq -R . | jq -s .)
+        curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,regionName,city,zip,isp,query" \
+             -H "Content-Type: application/json" \
+             -d "$json_payload" > "/tmp/batch_zip_${round}.json"
+    done
+
+    jq -s 'add' /tmp/batch_zip_*.json > /tmp/all_batch_zip.json 2>/dev/null
+
     jq -r --arg z "$query_zip" \
         '.[] | select(.status=="success" and (.zip | tostring | ascii_downcase | contains($z | ascii_downcase))) | "\(.query)|\(.city)|\(.regionName)|\(.country)|\(.zip)|\(.isp)"' \
-        /tmp/batch_zip.json 2>/dev/null | head -n 10 > /tmp/final_zip_matched.txt
+        /tmp/all_batch_zip.json 2>/dev/null | head -n 10 > /tmp/final_zip_matched.txt
 
     mapfile -t matched_zips < /tmp/final_zip_matched.txt
 
@@ -417,7 +479,7 @@ search_by_postcode() {
         } >> "$HISTORY_FILE"
     fi
 
-    rm -f /tmp/zip_*.txt /tmp/batch_zip.json /tmp/final_zip_matched.txt
+    rm -f /tmp/zip_*.txt /tmp/batch_zip_*.json /tmp/all_batch_zip.json /tmp/final_zip_matched.txt
     echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
     echo -ne "${WHITE}Tekan enter untuk balik ke menu${NC}"
     read -r
