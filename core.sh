@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - CORE ENGINE v5.0 (20 IPs + AUTO REPEAT)
+# EJAYWATT CLOUDFAIL - CORE ENGINE v6.0 (TWIN IP + ANTI-PREFIX)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -43,6 +43,7 @@ cidr_to_random_ip() {
     fi
 }
 
+# --- WORKER MENU 1: CLONE SINGLE IP (ELAK PREFIX SAMA) ---
 search_error_1003_worker() {
     local target_ip=$1
     local country=$2
@@ -53,6 +54,7 @@ search_error_1003_worker() {
     local asn_raw=$7
 
     IFS='.' read -r o1 o2 o3 o4 <<< "$target_ip"
+    local target_prefix="${o1}.${o2}."
 
     > /tmp/candidate_prefixes.txt
     > /tmp/candidate_ips.txt
@@ -83,16 +85,15 @@ PREFIXES
 
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
-        for _ in {1..16}; do
+        if [[ "$prefix" == "${target_prefix}"* ]]; then
+            continue
+        fi
+        for _ in {1..18}; do
             cidr_to_random_ip "$prefix" >> /tmp/candidate_ips.txt
         done
     done < /tmp/candidate_prefixes.txt
 
-    for _ in {1..25}; do
-        echo "${o1}.${o2}.$(( RANDOM % 256 )).$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
-    done
-
-    grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 260 > /tmp/unique_candidates.txt
+    grep -v "^${o1}\.${o2}\." /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 260 > /tmp/unique_candidates.txt
 
     cat /tmp/unique_candidates.txt | xargs -P 50 -I {} bash -c '
         ip="{}"
@@ -137,6 +138,100 @@ PREFIXES
     awk -F'|' '!seen[$1]++' /tmp/verified_matches.txt | head -n 20 > /tmp/final_matched_output.txt
 }
 
+# --- WORKER MENU 2: CLONE TWIN IP (PASANGAN KEMBAR + ELAK PREFIX SAMA) ---
+search_twin_1003_worker() {
+    local target_ip=$1
+    local country=$2
+    local city=$3
+    local zip=$4
+
+    IFS='.' read -r o1 o2 o3 o4 <<< "$target_ip"
+
+    > /tmp/twin_candidates.txt
+    > /tmp/twin_live_pairs.txt
+    > /tmp/twin_final_output.txt
+
+    cat << 'PREFIXES' > /tmp/twin_prefixes.txt
+108.162.192.0/18
+141.101.64.0/18
+162.158.0.0/15
+172.64.0.0/13
+172.68.0.0/14
+172.70.0.0/15
+172.71.0.0/16
+173.245.48.0/20
+188.114.96.0/20
+190.93.240.0/20
+198.41.128.0/17
+104.16.0.0/13
+104.24.0.0/14
+PREFIXES
+
+    while IFS= read -r prefix; do
+        [ -z "$prefix" ] && continue
+        for _ in {1..14}; do
+            base_ip=$(cidr_to_random_ip "$prefix")
+            IFS='.' read -r b1 b2 b3 b4 <<< "$base_ip"
+            if [ "$b1" == "$o1" ] && [ "$b2" == "$o2" ]; then
+                continue
+            fi
+            if [ "$b3" -gt 0 ]; then
+                twin_b3=$(( b3 - 1 ))
+            else
+                twin_b3=$(( b3 + 1 ))
+            fi
+            ip1="${b1}.${b2}.${b3}.${b4}"
+            ip2="${b1}.${b2}.${twin_b3}.${b4}"
+            echo "${ip1}|${ip2}" >> /tmp/twin_candidates.txt
+        done
+    done < /tmp/twin_prefixes.txt
+
+    awk '!seen[$0]++' /tmp/twin_candidates.txt | shuf -n 90 > /tmp/twin_unique.txt
+
+    cat /tmp/twin_unique.txt | xargs -P 45 -I {} bash -c '
+        pair="{}"
+        ip1="${pair%|*}"
+        ip2="${pair#*|}"
+        r1=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip1}" 2>/dev/null)
+        if echo "$r1" | grep -Eqi "1003|Direct IP access not allowed"; then
+            r2=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip2}" 2>/dev/null)
+            if echo "$r2" | grep -Eqi "1003|Direct IP access not allowed"; then
+                echo "${ip1}|${ip2}"
+            fi
+        fi
+    ' > /tmp/twin_live_pairs.txt
+
+    mapfile -t live_pairs < <(head -n 40 /tmp/twin_live_pairs.txt)
+    [ ${#live_pairs[@]} -eq 0 ] && return
+
+    first_ips=()
+    for p in "${live_pairs[@]}"; do
+        first_ips+=("${p%|*}")
+    done
+
+    json_payload=$(printf '%s\n' "${first_ips[@]}" | jq -R . | jq -s .)
+    curl -s --max-time 8 -X POST "http://ip-api.com/batch?fields=status,country,city,zip,isp,query" \
+         -H "Content-Type: application/json" \
+         -d "$json_payload" > /tmp/twin_batch.json
+
+    > /tmp/twin_verified.txt
+    for p in "${live_pairs[@]}"; do
+        ip1="${p%|*}"
+        ip2="${p#*|}"
+        info=$(jq -r --arg q "$ip1" '.[] | select(.query==$q and .status=="success") | "\(.country)|\(.city)|\(.zip)|\(.isp)"' /tmp/twin_batch.json 2>/dev/null | head -n 1)
+        if [ -n "$info" ]; then
+            echo "${ip1} / ${ip2}|${info}" >> /tmp/twin_verified.txt
+        fi
+    done
+
+    grep "|${country}|" /tmp/twin_verified.txt > /tmp/twin_final_output.txt 2>/dev/null
+    cat /tmp/twin_verified.txt >> /tmp/twin_final_output.txt 2>/dev/null
+
+    awk -F'|' '!seen[$1]++' /tmp/twin_final_output.txt | head -n 20 > /tmp/twin_clean.txt
+    mv /tmp/twin_clean.txt /tmp/twin_final_output.txt
+}
+
+# --- MENU 1: CLONE IP (20 IPs + ELAK PREFIX SAMA + AUTO REPEAT) ---
 clone_ip() {
     show_banner
     echo -e "${CYAN}╭─[ 1. CLONE IP ADDRESS (ERROR 1003 - 20 IPs) ]${NC}"
@@ -153,6 +248,8 @@ clone_ip() {
         sleep 1.5
         return
     fi
+
+    IFS='.' read -r o1 o2 _ _ <<< "$target_ip"
 
     echo ""
     (curl -s "http://ip-api.com/json/${target_ip}?fields=status,message,country,countryCode,regionName,city,zip,isp,org,as,query" > /tmp/target_ip.json) &
@@ -180,16 +277,15 @@ clone_ip() {
         show_banner
         echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip} ${GRAY}(Batch #${batch_num})${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Filter     :${NC} ${GREEN}Auto-Skip kepala ${o1}.${o2}.x.x ✔${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Negara     :${NC} ${CYAN}${country} (${country_code})${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Negeri     :${NC} ${CYAN}${region}${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Bandar     :${NC} ${CYAN}${city}${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Bandar     :${NC} ${CYAN}${city} (${region})${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Postcode   :${NC} ${CYAN}${zip:-Tiada Data}${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}ISP        :${NC} ${CYAN}${isp}${NC}"
         echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
         echo ""
 
         (search_error_1003_worker "$target_ip" "$country" "$region" "$city" "$zip" "$isp" "$asn") &
-        loading_spinner $! "Mengimbas 20 IP Error 1003 baharu untuk $target_ip..."
+        loading_spinner $! "Mengimbas 20 IP Error 1003 (selain ${o1}.${o2}.x.x)..."
 
         mapfile -t matched_lines < /tmp/final_matched_output.txt 2>/dev/null
 
@@ -210,7 +306,7 @@ clone_ip() {
             current_date=$(LC_TIME=C date +"%A %dth %B %Y")
             {
                 echo "$current_date"
-                echo "Ip Target : $target_ip (Batch #${batch_num})"
+                echo "Ip Target : $target_ip (Clone IP - Batch #${batch_num})"
                 echo "Ip Address Found :"
                 c=1
                 for f_ip in "${found_ips[@]}"; do
@@ -236,6 +332,101 @@ clone_ip() {
     done
 }
 
+# --- MENU 2: CLONE TWIN IP (PASANGAN IP KEMBAR + ELAK PREFIX SAMA) ---
+clone_twin_ip() {
+    show_banner
+    echo -e "${CYAN}╭─[ 2. CLONE TWIN IP (PASANGAN IP KEMBAR ERROR 1003) ]${NC}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address Target (atau ${YELLOW}0${WHITE} untuk Exit) : ${YELLOW}"
+    read -r target_ip
+    echo -ne "${NC}"
+
+    if [ "$target_ip" == "0" ] || [ -z "$target_ip" ]; then
+        return
+    fi
+
+    if [[ ! "$target_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo -e "\n${RED}[✘] Format IP Address tidak sah!${NC}"
+        sleep 1.5
+        return
+    fi
+
+    IFS='.' read -r o1 o2 _ _ <<< "$target_ip"
+
+    echo ""
+    (curl -s "http://ip-api.com/json/${target_ip}?fields=status,message,country,countryCode,regionName,city,zip,isp,query" > /tmp/target_twin.json) &
+    loading_spinner $! "Mengambil butiran lokasi bagi $target_ip..."
+
+    status=$(jq -r '.status' /tmp/target_twin.json 2>/dev/null)
+    if [ "$status" != "success" ]; then
+        echo -e "${RED}[✘] Gagal mendapatkan maklumat IP.${NC}"
+        sleep 2
+        return
+    fi
+
+    country=$(jq -r '.country' /tmp/target_twin.json)
+    country_code=$(jq -r '.countryCode' /tmp/target_twin.json)
+    region=$(jq -r '.regionName' /tmp/target_twin.json)
+    city=$(jq -r '.city' /tmp/target_twin.json)
+    zip=$(jq -r '.zip' /tmp/target_twin.json)
+    rm -f /tmp/target_twin.json
+
+    local batch_num=1
+    while true; do
+        show_banner
+        echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip} ${GRAY}(Twin Mode - Batch #${batch_num})${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Filter     :${NC} ${GREEN}Auto-Skip kepala ${o1}.${o2}.x.x ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Lokasi     :${NC} ${CYAN}${city}, ${region}, ${country} (${country_code})${NC}"
+        echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
+        echo ""
+
+        (search_twin_1003_worker "$target_ip" "$country" "$city" "$zip") &
+        loading_spinner $! "Mencari 20 Pasangan Twin IP Error 1003 (selain ${o1}.${o2}.x.x)..."
+
+        mapfile -t twin_lines < /tmp/twin_final_output.txt 2>/dev/null
+
+        echo -e "${GREEN}[✔] Selesai! Senarai Pasangan Twin IP Error 1003 untuk ${YELLOW}${target_ip}${GREEN}:${NC}\n"
+
+        if [ ${#twin_lines[@]} -eq 0 ]; then
+            echo -e "${RED}Tiada pasangan Twin IP aktif ditemui pada pusingan ini. Tekan Enter untuk cuba lagi.${NC}"
+        else
+            count=1
+            found_twins=()
+            for entry in "${twin_lines[@]}"; do
+                IFS='|' read -r t_pair t_cnt t_city t_zip t_isp <<< "$entry"
+                found_twins+=("$t_pair")
+                printf "${GREEN}%-3s %-35s [ 1003 ✔ | %s, %s | Zip: %s ]${NC}\n" "${count}." "$t_pair" "$t_city" "$t_cnt" "${t_zip:-N/A}"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Ip Target : $target_ip (Twin IP Mode - Batch #${batch_num})"
+                echo "Ip Address Found :"
+                c=1
+                for t_p in "${found_twins[@]}"; do
+                    echo "${c}. ${t_p}"
+                    ((c++))
+                done
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
+        fi
+
+        rm -f /tmp/twin_*.txt /tmp/twin_batch.json
+
+        echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
+        echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk cari Twin IP lagi (${YELLOW}${target_ip}${WHITE}), atau taip ${RED}[0]${WHITE} untuk Exit : "
+        read -r choice_loop
+        if [ "$choice_loop" == "0" ]; then
+            break
+        fi
+        ((batch_num++))
+    done
+}
+
+# --- MENU 4: SEARCH BY COUNTRY / REGION / CITY (20 IP + AUTO REPEAT) ---
 search_by_location() {
     show_banner
     echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY (20 IPs) ]${NC}"
@@ -372,6 +563,7 @@ PREFIXES
     done
 }
 
+# --- MENU 5: SEARCH BY POSTCODE (20 IP + AUTO REPEAT) ---
 search_by_postcode() {
     show_banner
     echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE (20 IPs) ]${NC}"
@@ -504,6 +696,7 @@ PREFIXES
     done
 }
 
+# --- MENU 3: SHOW HISTORY ---
 show_history() {
     show_banner
     echo -e "${CYAN}╭──────────────────────────────────────────────────╮${NC}"
