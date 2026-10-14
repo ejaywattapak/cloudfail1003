@@ -33,8 +33,6 @@ wget -O installer.sh https://raw.githubusercontent.com/ejaywattapak/cloudfail100
 
 Requirements: Ubuntu, Debian, or Rocky Linux with root access.
 
-wget -O installer.sh https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main/installer.sh && chmod +x installer.sh && ./installer.sh
-
 📌 Installation Steps
 
 Connect to your VPS via SSH as root.
