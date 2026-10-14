@@ -39,54 +39,45 @@ wget -O installer.sh https://raw.githubusercontent.com/ejaywattapak/cloudfail100
 
 Requirements: Ubuntu, Debian, or Rocky Linux with root access.
 
+
+
 📌 Installation Steps
 
 Connect to your VPS via SSH as root.
-
 Copy and run the installation command above.
-
 Follow the on-screen instructions to complete the setup.
 
-💻 Supported Operating Systems
 
+
+💻 Supported Operating Systems
 Operating System
 
 Support
 
-Ubuntu
+Ubuntu✅
+Debian✅
+Rocky Linux✅
 
-✅
 
-Debian
-
-✅
-
-Rocky Linux
-
-✅
 
 ⚙️ Key Features
 
 Multi-Range IP Scanning — Scan IP addresses across multiple IP ranges and subnet blocks.
-
 GeoIP Matching — Identify IP addresses associated with matching locations, cities, postal codes, and networks, subject to GeoIP database accuracy.
-
 Live Error 1003 Verification — Check whether a target IP returns Cloudflare Error 1003 (Direct IP access not allowed).
-
 VPS-Friendly Installation — Install and run the scanner directly on supported Linux VPS environments.
-
 Automated Scanning — Reduce manual work when searching and verifying candidate IP addresses.
+
+
 
 ⚠️ Disclaimer
 
 This project is intended for educational purposes, network diagnostics, and authorized testing. Results may vary depending on IP allocation, GeoIP database accuracy, network conditions, and Cloudflare configuration.
-
 Only scan and test IP addresses and networks that you are authorized to assess. An Error 1003 response does not guarantee that an IP address is suitable for every application or connection method.
 
 📬 Contact
 
 For questions, feedback, or support, contact:
-
 Telegram: @ejwtpkvpn
 
 <div align="center">
