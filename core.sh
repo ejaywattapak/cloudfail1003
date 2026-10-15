@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - CORE ENGINE v10.1 (LIVE DNS + BUG HUNTER)
+# EJAYWATT CLOUDFAIL - CORE ENGINE v11.0 (FRESH TOP + IPV6 DNS)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -123,15 +123,6 @@ detect_original_domain_fast() {
     fi
 
     if [ -z "$orig" ]; then
-        orig=$(curl -s --max-time 2.5 -A "Mozilla/5.0" "https://api.webscan.cc/?action=query&ip=${ip}" 2>/dev/null \
-            | jq -r '.[]?.domain' 2>/dev/null \
-            | tr '[:upper:]' '[:lower:]' \
-            | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' \
-            | grep -vE "\.(shop|xyz|top|club|online|site|fun|icu|cyou|cfd|sbs|buzz)$" \
-            | head -n 1)
-    fi
-
-    if [ -z "$orig" ]; then
         case "$ip" in
             104.18.20.*|104.18.21.*) orig="mcmc-my.metricelltestcloud.com" ;;
             104.17.147.*|104.17.148.*) orig="www.speedtest.net" ;;
@@ -175,59 +166,14 @@ verify_1003_and_vless_ws() {
     ' > "$output_file"
 }
 
-bug_hunter_worker() {
-    > /tmp/bh_candidates.txt
-    > /tmp/bh_live.txt
-    > /tmp/bh_final_results.txt
-
-    local golden_subnets=(
-        "104.18.21"
-        "104.18.20"
-        "172.66.43"
-        "172.66.40"
-        "104.17.148"
-        "104.17.147"
-        "104.17.183"
-        "104.18.30"
-        "104.18.31"
-        "104.17.182"
-    )
-
-    for sub in "${golden_subnets[@]}"; do
-        for _ in {1..14}; do
-            echo "${sub}.$(( (RANDOM % 254) + 1 ))" >> /tmp/bh_candidates.txt
-        done
-    done
-
-    while IFS= read -r prefix; do
-        [ -z "$prefix" ] && continue
-        for _ in {1..8}; do
-            cidr_to_random_ip "$prefix" >> /tmp/bh_candidates.txt
-        done
-    done < <(generate_cf_prefixes)
-
-    grep -vE "^(104\.18\.21\.212|104\.18\.20\.212|172\.66\.43\.86|104\.17\.148\.22|104\.17\.183\.120|104\.18\.30\.244)$" /tmp/bh_candidates.txt \
-        | awk '!seen[$0]++' | shuf -n 220 > /tmp/bh_unique.txt
-
-    verify_1003_and_vless_ws /tmp/bh_unique.txt /tmp/bh_live.txt "$DEFAULT_VLESS_HOST"
-
-    head -n 20 /tmp/bh_live.txt > /tmp/bh_top20.txt
-
-    cat /tmp/bh_top20.txt | xargs -P 10 -I {} bash -c '
-        ip="{}"
-        dom=$(detect_original_domain_fast "$ip")
-        echo "${ip}|${dom}"
-    ' > /tmp/bh_final_results.txt
-
-    rm -f /tmp/bh_candidates.txt /tmp/bh_unique.txt /tmp/bh_live.txt /tmp/bh_top20.txt
-}
-
+# --- WORKER MENU 1 (TAPIS IP SUDAH DIBACA SUPAYA TIDAK BERULANG) ---
 search_error_1003_worker() {
     local target_ip=$1
     local country=$2
     local region=$3
     local city=$4
     local zip=$5
+    local seen_file=$6
 
     IFS='.' read -r o1 o2 o3 o4 <<< "$target_ip"
 
@@ -236,21 +182,28 @@ search_error_1003_worker() {
     > /tmp/verified_matches.txt
     > /tmp/final_matched_output.txt
 
-    for _ in {1..30}; do
+    for _ in {1..40}; do
         echo "${o1}.${o2}.${o3}.$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
     done
-    for _ in {1..45}; do
+    for _ in {1..60}; do
         echo "${o1}.${o2}.$(( RANDOM % 256 )).$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
     done
 
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
-        for _ in {1..14}; do
+        for _ in {1..16}; do
             cidr_to_random_ip "$prefix" >> /tmp/candidate_ips.txt
         done
     done < <(generate_cf_prefixes)
 
-    grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 280 > /tmp/unique_candidates.txt
+    # Tapis keluar target_ip DAN semua IP yang sudah keluar pada pusingan sebelum ini
+    grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' > /tmp/raw_cand.txt
+    if [ -s "$seen_file" ]; then
+        awk -F'|' '{print $1}' "$seen_file" > /tmp/seen_ips_only.txt
+        grep -vxFf /tmp/seen_ips_only.txt /tmp/raw_cand.txt | shuf -n 280 > /tmp/unique_candidates.txt
+    else
+        shuf -n 280 /tmp/raw_cand.txt > /tmp/unique_candidates.txt
+    fi
 
     verify_1003_and_vless_ws /tmp/unique_candidates.txt /tmp/live_1003_ips.txt "$DEFAULT_VLESS_HOST"
 
@@ -290,13 +243,16 @@ search_error_1003_worker() {
     grep -v "^${o1}\.${o2}\." /tmp/verified_matches.txt | awk -F'|' '!seen[$1]++' | head -n 15 > /tmp/alt_range.txt
 
     cat /tmp/same_range.txt /tmp/alt_range.txt /tmp/verified_matches.txt | awk -F'|' '!seen[$1]++' | head -n 20 > /tmp/final_matched_output.txt
+    rm -f /tmp/raw_cand.txt /tmp/seen_ips_only.txt
 }
 
+# --- WORKER MENU 2: CLONE TWIN IP (ANTI-REPEAT) ---
 search_twin_1003_worker() {
     local target_ip=$1
     local country=$2
     local city=$3
     local zip=$4
+    local seen_file=$5
 
     IFS='.' read -r o1 o2 o3 o4 <<< "$target_ip"
 
@@ -304,7 +260,7 @@ search_twin_1003_worker() {
     > /tmp/twin_live_pairs.txt
     > /tmp/twin_final_output.txt
 
-    for _ in {1..25}; do
+    for _ in {1..30}; do
         b3=$(( RANDOM % 254 ))
         b4=$(( (RANDOM % 254) + 1 ))
         twin_b3=$(( b3 + 1 ))
@@ -313,7 +269,7 @@ search_twin_1003_worker() {
 
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
-        for _ in {1..12}; do
+        for _ in {1..14}; do
             base_ip=$(cidr_to_random_ip "$prefix")
             IFS='.' read -r b1 b2 b3 b4 <<< "$base_ip"
             if [ "$b3" -gt 0 ]; then
@@ -325,7 +281,13 @@ search_twin_1003_worker() {
         done
     done < <(generate_cf_prefixes)
 
-    awk '!seen[$0]++' /tmp/twin_candidates.txt | shuf -n 95 > /tmp/twin_unique.txt
+    awk '!seen[$0]++' /tmp/twin_candidates.txt > /tmp/twin_raw_u.txt
+    if [ -s "$seen_file" ]; then
+        awk -F' / ' '{print $1}' "$seen_file" > /tmp/seen_twin_ip1.txt
+        grep -vFf /tmp/seen_twin_ip1.txt /tmp/twin_raw_u.txt | shuf -n 95 > /tmp/twin_unique.txt
+    else
+        shuf -n 95 /tmp/twin_raw_u.txt > /tmp/twin_unique.txt
+    fi
 
     cat /tmp/twin_unique.txt | xargs -P 45 -I {} bash -c '
         pair="{}"
@@ -373,11 +335,62 @@ search_twin_1003_worker() {
 
     awk -F'|' '!seen[$1]++' /tmp/twin_final_output.txt | head -n 20 > /tmp/twin_clean.txt
     mv /tmp/twin_clean.txt /tmp/twin_final_output.txt
+    rm -f /tmp/twin_raw_u.txt /tmp/seen_twin_ip1.txt
 }
 
-# --- WORKER MENU 6: REVERSE IP + LIVE DNS VERIFICATION ---
+# --- WORKER MENU 8: BUG HUNTER (ANTI-REPEAT) ---
+bug_hunter_worker() {
+    local seen_file=$1
+    > /tmp/bh_candidates.txt
+    > /tmp/bh_live.txt
+    > /tmp/bh_final_results.txt
+
+    local golden_subnets=(
+        "104.18.21" "104.18.20" "172.66.43" "172.66.40"
+        "104.17.148" "104.17.147" "104.17.183" "104.18.30"
+        "104.18.31" "104.17.182" "104.18.22" "172.66.41"
+    )
+
+    for sub in "${golden_subnets[@]}"; do
+        for _ in {1..18}; do
+            echo "${sub}.$(( (RANDOM % 254) + 1 ))" >> /tmp/bh_candidates.txt
+        done
+    done
+
+    while IFS= read -r prefix; do
+        [ -z "$prefix" ] && continue
+        for _ in {1..10}; do
+            cidr_to_random_ip "$prefix" >> /tmp/bh_candidates.txt
+        done
+    done < <(generate_cf_prefixes)
+
+    grep -vE "^(104\.18\.21\.212|104\.18\.20\.212|172\.66\.43\.86|104\.17\.148\.22|104\.17\.183\.120|104\.18\.30\.244)$" /tmp/bh_candidates.txt \
+        | awk '!seen[$0]++' > /tmp/bh_raw_u.txt
+
+    if [ -s "$seen_file" ]; then
+        awk -F'|' '{print $1}' "$seen_file" > /tmp/bh_seen_ips.txt
+        grep -vxFf /tmp/bh_seen_ips.txt /tmp/bh_raw_u.txt | shuf -n 220 > /tmp/bh_unique.txt
+    else
+        shuf -n 220 /tmp/bh_raw_u.txt > /tmp/bh_unique.txt
+    fi
+
+    verify_1003_and_vless_ws /tmp/bh_unique.txt /tmp/bh_live.txt "$DEFAULT_VLESS_HOST"
+
+    head -n 20 /tmp/bh_live.txt > /tmp/bh_top20.txt
+
+    cat /tmp/bh_top20.txt | xargs -P 10 -I {} bash -c '
+        ip="{}"
+        dom=$(detect_original_domain_fast "$ip")
+        echo "${ip}|${dom}"
+    ' > /tmp/bh_final_results.txt
+
+    rm -f /tmp/bh_candidates.txt /tmp/bh_raw_u.txt /tmp/bh_seen_ips.txt /tmp/bh_unique.txt /tmp/bh_live.txt /tmp/bh_top20.txt
+}
+
+# --- WORKER MENU 6: REVERSE IP + LIVE DNS (BATCH PAGINATION ANTI-REPEAT) ---
 reverse_ip_domains_worker() {
     local target_ip=$1
+    local seen_file=$2
     > /tmp/rev_domains_raw.txt
     > /tmp/rev_domains_clean.txt
     > /tmp/rev_original_host.txt
@@ -404,29 +417,33 @@ reverse_ip_domains_worker() {
     tr '[:upper:]' '[:lower:]' < /tmp/rev_domains_raw.txt \
         | grep -vE "^(rapiddns\.io|www\.rapiddns\.io|cloudflare\.com|w3\.org|google\.com|gstatic\.com|googleapis\.com|bootstrap|jquery|fontawesome|jsdelivr|cdnjs|html5shiv|respond\.min\.js|popper\.min\.js)$" \
         | grep -vE "\.(png|jpg|jpeg|gif|svg|css|js|ico|woff|woff2|ttf)$" \
-        | awk '!seen[$0]++' | head -n 65 > /tmp/rev_candidates.txt
+        | awk '!seen[$0]++' > /tmp/rev_all_u.txt
 
-    # Sahkan secara LIVE DNS supaya domain yang sudah bertukar IP ditapis atau dilabel tepat
+    [ -n "$orig_domain" ] && grep -vxF "$orig_domain" /tmp/rev_all_u.txt > /tmp/rev_no_orig.txt || cp /tmp/rev_all_u.txt /tmp/rev_no_orig.txt
+
+    # Tapis keluar domain yang sudah pernah dipaparkan dalam sesi ini
+    if [ -s "$seen_file" ]; then
+        awk -F'|' '{print $1}' "$seen_file" > /tmp/rev_seen_doms.txt
+        grep -vxFf /tmp/rev_seen_doms.txt /tmp/rev_no_orig.txt | head -n 35 > /tmp/rev_candidates.txt
+    else
+        head -n 35 /tmp/rev_no_orig.txt > /tmp/rev_candidates.txt
+    fi
+
     cat /tmp/rev_candidates.txt | xargs -P 25 -I {} bash -c '
         dom="{}"
-        tip="'"$target_ip"'"
         live_ip=$(getent ahostsv4 "$dom" 2>/dev/null | awk "{print \$1}" | head -n 1)
         if [ -n "$live_ip" ]; then
             echo "${dom}|${live_ip}"
         fi
-    ' > /tmp/rev_verified_live.txt
+    ' | head -n 20 > /tmp/rev_domains_clean.txt
 
-    if [ -n "$orig_domain" ]; then
-        grep -vE "^${orig_domain}\|" /tmp/rev_verified_live.txt > /tmp/rev_domains_clean.txt
-    else
-        cp /tmp/rev_verified_live.txt /tmp/rev_domains_clean.txt
-    fi
-    rm -f /tmp/rev_candidates.txt /tmp/rev_verified_live.txt
+    rm -f /tmp/rev_all_u.txt /tmp/rev_no_orig.txt /tmp/rev_seen_doms.txt /tmp/rev_candidates.txt
 }
 
-# --- WORKER MENU 7: DOMAIN TO IP + LIVE DNS VERIFICATION ---
+# --- WORKER MENU 7: DOMAIN TO IP + LIVE DNS (BATCH PAGINATION ANTI-REPEAT) ---
 domain_to_ip_worker() {
     local target_dom=$1
+    local seen_file=$2
     > /tmp/dom_orig_ips.txt
     > /tmp/dom_orig_details.txt
     > /tmp/dom_cname.txt
@@ -474,30 +491,149 @@ domain_to_ip_worker() {
 
         curl -s --max-time 8 -A "Mozilla/5.0" "https://api.webscan.cc/?action=query&ip=${primary_ip}" 2>/dev/null \
             | jq -r '.[]?.domain' 2>/dev/null >> /tmp/dom_other_raw.txt
+
+        curl -s --max-time 8 -A "Mozilla/5.0" "https://rapiddns.io/sameip/${primary_ip}?full=1" 2>/dev/null \
+            | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/dom_other_raw.txt
     fi
 
     tr '[:upper:]' '[:lower:]' < /tmp/dom_other_raw.txt \
         | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' \
         | grep -vxF "$target_dom" \
-        | grep -vE "^(rapiddns\.io|www\.rapiddns\.io|cloudflare\.com|w3\.org|google\.com|gstatic\.com|googleapis\.com)$" \
-        | awk '!seen[$0]++' | head -n 55 > /tmp/dom_candidates.txt
+        | grep -vE "^(rapiddns\.io|www\.rapiddns\.io|cloudflare\.com|w3\.org|google\.com|gstatic\.com|googleapis\.com|bootstrap|jquery|fontawesome|jsdelivr|cdnjs)$" \
+        | awk '!seen[$0]++' > /tmp/dom_all_u.txt
 
-    # Semak LIVE IP sebenar masa nyata bagi setiap domain (sama 100% seperti Check-Host)
+    if [ -s "$seen_file" ]; then
+        awk -F'|' '{print $1}' "$seen_file" > /tmp/dom_seen_list.txt
+        grep -vxFf /tmp/dom_seen_list.txt /tmp/dom_all_u.txt | head -n 35 > /tmp/dom_candidates.txt
+    else
+        head -n 35 /tmp/dom_all_u.txt > /tmp/dom_candidates.txt
+    fi
+
     cat /tmp/dom_candidates.txt | xargs -P 25 -I {} bash -c '
         d="{}"
         real_ip=$(getent ahostsv4 "$d" 2>/dev/null | awk "{print \$1}" | head -n 1)
         if [ -n "$real_ip" ]; then
             echo "${d}|${real_ip}"
         fi
-    ' > /tmp/dom_other_clean.txt
+    ' | head -n 20 > /tmp/dom_other_clean.txt
 
-    rm -f /tmp/doh_cf.json /tmp/doh_gg.json /tmp/dom_orig_ips.txt /tmp/dom_other_raw.txt /tmp/dom_candidates.txt
+    rm -f /tmp/doh_cf.json /tmp/doh_gg.json /tmp/dom_orig_ips.txt /tmp/dom_other_raw.txt /tmp/dom_all_u.txt /tmp/dom_seen_list.txt /tmp/dom_candidates.txt
 }
 
-# --- MENU 1: CLONE IP ---
+# --- WORKER MENU 9: SEARCH DNS IPV6 ([2606:4700:...]) ---
+ipv6_dns_worker() {
+    local query=$1
+    local seen_file=$2
+    > /tmp/v6_raw_records.txt
+    > /tmp/v6_fresh_output.txt
+
+    # Fungsi tukar IPv4 kepada format Cloudflare IPv6 (cth: 172.66.40.170 -> [2606:4700:3108::ac42:28aa])
+    ipv4_to_cf_ipv6() {
+        local ip4=$1
+        local host_label=$2
+        IFS='.' read -r a b c d <<< "$ip4"
+        local hex_part
+        hex_part=$(printf "%02x%02x:%02x%02x" "$a" "$b" "$c" "$d")
+        echo "[2606:4700:3108::${hex_part}]|${host_label} (CF-IPv6-Mapped from ${ip4})"
+        echo "[2606:4700:3030::${hex_part}]|${host_label} (CF-Anycast-v6 from ${ip4})"
+        echo "[2606:4700:20::${hex_part}]|${host_label} (CF-Edge-v6 from ${ip4})"
+    }
+
+    if [[ "$query" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # Input ialah IPv4
+        local orig_dom
+        orig_dom=$(detect_original_domain_fast "$query")
+        ipv4_to_cf_ipv6 "$query" "${orig_dom:-Direct-IPv4}" >> /tmp/v6_raw_records.txt
+
+        # Korek AAAA daripada domain asal dan domain berkaitan pada IP tersebut
+        if [ -n "$orig_dom" ]; then
+            curl -s --max-time 5 -H "accept: application/dns-json" "https://cloudflare-dns.com/dns-query?name=${orig_dom}&type=AAAA" 2>/dev/null \
+                | jq -r --arg h "$orig_dom" '.Answer[]? | select(.type==28) | "[\(.data)]|\($h) (Native AAAA)"' >> /tmp/v6_raw_records.txt
+        fi
+
+        # Cari domain lain pada IP ini dan ambil rekod AAAA mereka
+        curl -s --max-time 6 -A "Mozilla/5.0" "https://api.hackertarget.com/reverseiplookup/?q=${query}" 2>/dev/null \
+            | grep -vE "API count|error|No DNS" | head -n 25 > /tmp/v6_sub_doms.txt
+        curl -s --max-time 6 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${query}/passive_dns" 2>/dev/null \
+            | jq -r '.passive_dns[]?.hostname' 2>/dev/null | head -n 25 >> /tmp/v6_sub_doms.txt
+
+        awk '!seen[$0]++' /tmp/v6_sub_doms.txt | head -n 30 | xargs -P 15 -I {} bash -c '
+            d="{}"
+            v6_list=$(getent ahostsv6 "$d" 2>/dev/null | awk "{print \$1}" | grep -v "^::ffff:" | sort -u)
+            for v6 in $v6_list; do
+                echo "[${v6}]|${d} (Live AAAA)"
+            done
+        ' >> /tmp/v6_raw_records.txt
+
+        # Jana juga variasi IPv6 dalam subnet /24 yang sama supaya carian semula ada stok IPv6 segar
+        IFS='.' read -r o1 o2 o3 _ <<< "$query"
+        for _ in {1..25}; do
+            r_o4=$(( (RANDOM % 254) + 1 ))
+            hex_p=$(printf "%02x%02x:%02x%02x" "$o1" "$o2" "$o3" "$r_o4")
+            p_tag=$(shuf -n 1 -e "3108" "3030" "3031" "3032" "3033" "20" "10")
+            echo "[2606:4700:${p_tag}::${hex_p}]|${orig_dom:-Cloudflare-Node} (Subnet ${o1}.${o2}.${o3}.${r_o4})" >> /tmp/v6_raw_records.txt
+        done
+    else
+        # Input ialah Domain
+        local clean_d
+        clean_d=$(echo "$query" | sed -E 's#^https?://##; s#/.*$##' | tr '[:upper:]' '[:lower:]' | xargs)
+
+        # 1. Semak Native AAAA daripada Cloudflare & Google DoH
+        curl -s --max-time 5 -H "accept: application/dns-json" "https://cloudflare-dns.com/dns-query?name=${clean_d}&type=AAAA" 2>/dev/null \
+            | jq -r --arg h "$clean_d" '.Answer[]? | select(.type==28) | "[\(.data)]|\($h) (Original AAAA)"' >> /tmp/v6_raw_records.txt
+        curl -s --max-time 5 "https://dns.google/resolve?name=${clean_d}&type=AAAA" 2>/dev/null \
+            | jq -r --arg h "$clean_d" '.Answer[]? | select(.type==28) | "[\(.data)]|\($h) (Original AAAA)"' >> /tmp/v6_raw_records.txt
+
+        # 2. Semak IPv4 domain tersebut dan bina padanan IPv6 Cloudflare [2606:4700:3108::xxxx:xxxx]
+        mapfile -t d_v4s < <(getent ahostsv4 "$clean_d" 2>/dev/null | awk '{print $1}' | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)
+        for v4 in "${d_v4s[@]}"; do
+            ipv4_to_cf_ipv6 "$v4" "$clean_d" >> /tmp/v6_raw_records.txt
+        done
+
+        # 3. Cari subdomain berkaitan & ambil rekod AAAA mereka
+        root_dom=$(echo "$clean_d" | awk -F. '{if (NF>=2) print $(NF-1)"."$NF; else print $0}')
+        curl -s --max-time 6 "https://api.hackertarget.com/hostsearch/?q=${root_dom}" 2>/dev/null \
+            | grep -vE "API count|error|No DNS" | awk -F',' '{print $1}' | head -n 30 > /tmp/v6_rel_doms.txt
+
+        cat /tmp/v6_rel_doms.txt | xargs -P 15 -I {} bash -c '
+            d="{}"
+            v6_list=$(getent ahostsv6 "$d" 2>/dev/null | awk "{print \$1}" | grep -v "^::ffff:" | sort -u)
+            for v6 in $v6_list; do
+                echo "[${v6}]|${d} (Subdomain AAAA)"
+            done
+        ' >> /tmp/v6_raw_records.txt
+
+        # 4. Tambah nod IPv6 Cloudflare berkaitan jika perlu untuk batch seterusnya
+        if [ ${#d_v4s[@]} -gt 0 ]; then
+            IFS='.' read -r o1 o2 o3 _ <<< "${d_v4s[0]}"
+            for _ in {1..20}; do
+                r_o4=$(( (RANDOM % 254) + 1 ))
+                hex_p=$(printf "%02x%02x:%02x%02x" "$o1" "$o2" "$o3" "$r_o4")
+                p_tag=$(shuf -n 1 -e "3108" "3030" "3031" "3032" "20")
+                echo "[2606:4700:${p_tag}::${hex_p}]|${clean_d} (CF-IPv6 Block ${o1}.${o2}.${o3}.${r_o4})" >> /tmp/v6_raw_records.txt
+            done
+        fi
+    fi
+
+    # Bersihkan pendua & tapis keluar yang sudah pernah keluar dalam sesi ini
+    tr '[:upper:]' '[:lower:]' < /tmp/v6_raw_records.txt | awk -F'|' '!seen[$1]++' > /tmp/v6_all_unique.txt
+
+    if [ -s "$seen_file" ]; then
+        awk -F'|' '{print $1}' "$seen_file" > /tmp/v6_seen_keys.txt
+        grep -vFf /tmp/v6_seen_keys.txt /tmp/v6_all_unique.txt | head -n 20 > /tmp/v6_fresh_output.txt
+    else
+        head -n 20 /tmp/v6_all_unique.txt > /tmp/v6_fresh_output.txt
+    fi
+
+    rm -f /tmp/v6_raw_records.txt /tmp/v6_sub_doms.txt /tmp/v6_rel_doms.txt /tmp/v6_all_unique.txt /tmp/v6_seen_keys.txt
+}
+
+# ==============================================================
+# MENU 1: CLONE IP (FRESH DI ATAS, REKOD LAMA TURUN BAWAH)
+# ==============================================================
 clone_ip() {
     show_banner
-    echo -e "${CYAN}╭─[ 1. CLONE IP (SAME & ALT RANGE + VLESS WS READY) ]${NC}"
+    echo -e "${CYAN}╭─[ 1. CLONE IP (FRESH ATAS + LAMA TURUN BAWAH) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address Target (atau ${YELLOW}0${WHITE} untuk Exit) : ${YELLOW}"
     read -r target_ip
     echo -ne "${NC}"
@@ -533,80 +669,94 @@ clone_ip() {
     zip=$(jq -r '.zip' /tmp/target_ip.json)
     rm -f /tmp/target_ip.json
 
+    local seen_session="/tmp/seen_menu1_$$.txt"
+    > "$seen_session"
     local batch_num=1
+
     while true; do
         show_banner
         echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip} ${GRAY}(Batch #${batch_num})${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Mode       :${NC} ${GREEN}Julat Sama (${o1}.${o2}.*) + Alternatif CF ✔${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Protokol   :${NC} ${CYAN}Error 1003 + VLESS WS/HttpUpgrade/Xhttp ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Mode       :${NC} ${GREEN}No-Repeat (Fresh Atas / Lama Bawah) ✔${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Lokasi     :${NC} ${CYAN}${city}, ${region}, ${country} (${zip:-N/A})${NC}"
         echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
         echo ""
 
-        (search_error_1003_worker "$target_ip" "$country" "$region" "$city" "$zip") &
-        loading_spinner $! "Mengimbas 20 IP (Julat Sama & Alternatif + VLESS WS Ready)..."
+        mapfile -t old_lines < "$seen_session" 2>/dev/null
 
-        mapfile -t matched_lines < /tmp/final_matched_output.txt 2>/dev/null
+        (search_error_1003_worker "$target_ip" "$country" "$region" "$city" "$zip" "$seen_session") &
+        loading_spinner $! "Mengimbas IP Error 1003 BAHARU (Batch #${batch_num})..."
 
-        echo -e "${GREEN}[✔] Selesai! 20 IP Error 1003 + VLESS WS Ready (${YELLOW}${target_ip}${GREEN}):${NC}\n"
+        mapfile -t fresh_lines < /tmp/final_matched_output.txt 2>/dev/null
 
-        found_ips=()
-        if [ ${#matched_lines[@]} -eq 0 ]; then
-            echo -e "${RED}Tiada IP aktif ditemui pada pusingan ini. Tekan Enter untuk cuba lagi.${NC}"
+        # 1. BAHAGIAN ATAS: HANYA HASIL FRESH (BELUM PERNAH KELUAR)
+        echo -e "${GREEN}╭───[ ★ HASIL BAHARU / FRESH (Batch #${batch_num} - ${#fresh_lines[@]} IP) ★ ]───╮${NC}"
+        all_selectable_ips=()
+        count=1
+        if [ ${#fresh_lines[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada lagi IP baharu ditemui. Semua IP aktif telah disenaraikan di bawah.${NC}"
         else
-            count=1
-            for entry in "${matched_lines[@]}"; do
+            for entry in "${fresh_lines[@]}"; do
                 IFS='|' read -r f_ip f_city f_zip f_isp <<< "$entry"
-                found_ips+=("$f_ip")
-                if [[ "$f_ip" == "${o1}.${o2}."* ]]; then
-                    r_tag="SAME-RANGE"
-                else
-                    r_tag="ALT-RANGE "
-                fi
-                printf "${GREEN}%-3s %-16s [ %s | 1003+WS ✔ | %s | Zip:%s ]${NC}\n" "${count}." "$f_ip" "$r_tag" "$f_city" "${f_zip:-N/A}"
+                all_selectable_ips+=("$f_ip")
+                echo "$entry" >> "$seen_session"
+                if [[ "$f_ip" == "${o1}.${o2}."* ]]; then r_tag="SAME-RANGE"; else r_tag="ALT-RANGE "; fi
+                printf "  ${GREEN}%-3s %-16s [ %s | 1003+WS ✔ | %s | Zip:%s ]${NC}\n" "${count}." "$f_ip" "$r_tag" "$f_city" "${f_zip:-N/A}"
                 ((count++))
             done
 
             current_date=$(LC_TIME=C date +"%A %dth %B %Y")
             {
                 echo "$current_date"
-                echo "Ip Target : $target_ip (Clone IP + VLESS WS - Batch #${batch_num})"
+                echo "Ip Target : $target_ip (Clone IP Fresh - Batch #${batch_num})"
                 echo "Ip Address Found :"
                 c=1
-                for f_ip in "${found_ips[@]}"; do
-                    echo "${c}. ${f_ip}"
+                for entry in "${fresh_lines[@]}"; do
+                    echo "${c}. ${entry%%|*}"
                     ((c++))
                 done
                 echo "--------------------------------------------------"
             } >> "$HISTORY_FILE"
         fi
 
-        rm -f /tmp/candidate_*.txt /tmp/unique_candidates.txt \
-              /tmp/live_1003_ips.txt /tmp/batch_1003*.json /tmp/verified_matches.txt \
-              /tmp/same_range.txt /tmp/alt_range.txt /tmp/final_matched_output.txt
+        # 2. BAHAGIAN BAWAH: HASIL YANG SUDAH DIBACA PADA PUSINGAN LEPAS
+        if [ ${#old_lines[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD LAMA / SUDAH DIBACA (${#old_lines[@]} IP Terdahulu) ]───╮${NC}"
+            for old_e in "${old_lines[@]}"; do
+                IFS='|' read -r o_ip o_city o_zip o_isp <<< "$old_e"
+                all_selectable_ips+=("$o_ip")
+                printf "  ${GRAY}%-3s %-16s [ Sudah Dibaca | %s | Zip:%s ]${NC}\n" "${count}." "$o_ip" "$o_city" "${o_zip:-N/A}"
+                ((count++))
+            done
+        fi
 
+        rm -f /tmp/candidate_*.txt /tmp/unique_candidates.txt /tmp/live_1003_ips.txt /tmp/batch_1003*.json /tmp/verified_matches.txt /tmp/same_range.txt /tmp/alt_range.txt /tmp/final_matched_output.txt
+
+        total_sel=${#all_selectable_ips[@]}
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi, taip ${YELLOW}[1-20]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} cari IP Fresh lagi, taip ${YELLOW}[1-${total_sel}]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
-        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "${#found_ips[@]}" ]; then
-            sel_ip="${found_ips[$((choice_loop-1))]}"
+        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "$total_sel" ]; then
+            sel_ip="${all_selectable_ips[$((choice_loop-1))]}"
             print_vless_links "$sel_ip" "$DEFAULT_VLESS_HOST"
-            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari 20 IP lagi, atau ${RED}[0]${WHITE} Exit : "
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari IP Fresh lagi, atau ${RED}[0]${WHITE} Exit : "
             read -r sub_c
             [ "$sub_c" == "0" ] && break
         fi
         ((batch_num++))
     done
+    rm -f "$seen_session"
 }
 
-# --- MENU 2: CLONE TWIN IP ---
+# ==============================================================
+# MENU 2: CLONE TWIN IP (FRESH DI ATAS, REKOD LAMA TURUN BAWAH)
+# ==============================================================
 clone_twin_ip() {
     show_banner
-    echo -e "${CYAN}╭─[ 2. CLONE TWIN IP (SAME & ALT RANGE + VLESS WS) ]${NC}"
+    echo -e "${CYAN}╭─[ 2. CLONE TWIN IP (FRESH ATAS + LAMA TURUN BAWAH) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address Target (atau ${YELLOW}0${WHITE} untuk Exit) : ${YELLOW}"
     read -r target_ip
     echo -ne "${NC}"
@@ -641,60 +791,75 @@ clone_twin_ip() {
     zip=$(jq -r '.zip' /tmp/target_twin.json)
     rm -f /tmp/target_twin.json
 
+    local seen_session="/tmp/seen_menu2_$$.txt"
+    > "$seen_session"
     local batch_num=1
+
     while true; do
         show_banner
         echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip} ${GRAY}(Twin Mode - Batch #${batch_num})${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Mode       :${NC} ${GREEN}Julat Sama (${o1}.${o2}.*) + Alternatif CF ✔${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Protokol   :${NC} ${CYAN}Error 1003 + VLESS WS/HttpUpgrade/Xhttp ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Mode       :${NC} ${GREEN}No-Repeat (Fresh Atas / Lama Bawah) ✔${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Lokasi     :${NC} ${CYAN}${city}, ${region}, ${country} (${country_code})${NC}"
         echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
         echo ""
 
-        (search_twin_1003_worker "$target_ip" "$country" "$city" "$zip") &
-        loading_spinner $! "Mencari 20 Pasangan Twin IP (1003 + VLESS WS Ready)..."
+        mapfile -t old_twins < "$seen_session" 2>/dev/null
 
-        mapfile -t twin_lines < /tmp/twin_final_output.txt 2>/dev/null
+        (search_twin_1003_worker "$target_ip" "$country" "$city" "$zip" "$seen_session") &
+        loading_spinner $! "Mencari Pasangan Twin IP BAHARU (Batch #${batch_num})..."
 
-        echo -e "${GREEN}[✔] Selesai! Pasangan Twin IP Error 1003 + VLESS WS (${YELLOW}${target_ip}${GREEN}):${NC}\n"
+        mapfile -t fresh_twins < /tmp/twin_final_output.txt 2>/dev/null
 
-        found_twins=()
-        if [ ${#twin_lines[@]} -eq 0 ]; then
-            echo -e "${RED}Tiada pasangan Twin IP aktif ditemui pada pusingan ini. Tekan Enter untuk cuba lagi.${NC}"
+        echo -e "${GREEN}╭───[ ★ PASANGAN TWIN IP BAHARU / FRESH (Batch #${batch_num} - ${#fresh_twins[@]} Pasang) ★ ]───╮${NC}"
+        all_selectable_twins=()
+        count=1
+        if [ ${#fresh_twins[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada lagi pasangan Twin IP baharu ditemui. Sila rujuk senarai di bawah.${NC}"
         else
-            count=1
-            for entry in "${twin_lines[@]}"; do
+            for entry in "${fresh_twins[@]}"; do
                 IFS='|' read -r t_pair t_cnt t_city t_zip t_isp <<< "$entry"
-                found_twins+=("$t_pair")
-                printf "${GREEN}%-3s %-35s [ 1003+WS ✔ | %s, %s | Zip:%s ]${NC}\n" "${count}." "$t_pair" "$t_city" "$t_cnt" "${t_zip:-N/A}"
+                all_selectable_twins+=("$t_pair")
+                echo "$entry" >> "$seen_session"
+                printf "  ${GREEN}%-3s %-35s [ 1003+WS ✔ | %s, %s | Zip:%s ]${NC}\n" "${count}." "$t_pair" "$t_city" "$t_cnt" "${t_zip:-N/A}"
                 ((count++))
             done
 
             current_date=$(LC_TIME=C date +"%A %dth %B %Y")
             {
                 echo "$current_date"
-                echo "Ip Target : $target_ip (Twin IP + VLESS WS - Batch #${batch_num})"
+                echo "Ip Target : $target_ip (Twin IP Fresh - Batch #${batch_num})"
                 echo "Ip Address Found :"
                 c=1
-                for t_p in "${found_twins[@]}"; do
-                    echo "${c}. ${t_p}"
+                for entry in "${fresh_twins[@]}"; do
+                    echo "${c}. ${entry%%|*}"
                     ((c++))
                 done
                 echo "--------------------------------------------------"
             } >> "$HISTORY_FILE"
         fi
 
+        if [ ${#old_twins[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD TWIN IP LAMA / SUDAH DIBACA (${#old_twins[@]} Pasang) ]───╮${NC}"
+            for old_e in "${old_twins[@]}"; do
+                IFS='|' read -r o_pair o_cnt o_city o_zip o_isp <<< "$old_e"
+                all_selectable_twins+=("$o_pair")
+                printf "  ${GRAY}%-3s %-35s [ Sudah Dibaca | %s, %s ]${NC}\n" "${count}." "$o_pair" "$o_city" "$o_cnt"
+                ((count++))
+            done
+        fi
+
         rm -f /tmp/twin_*.txt /tmp/twin_batch.json
 
+        total_sel=${#all_selectable_twins[@]}
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Twin IP lagi, taip ${YELLOW}[1-20]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} cari Twin Fresh lagi, taip ${YELLOW}[1-${total_sel}]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
-        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "${#found_twins[@]}" ]; then
-            raw_pair="${found_twins[$((choice_loop-1))]}"
+        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "$total_sel" ]; then
+            raw_pair="${all_selectable_twins[$((choice_loop-1))]}"
             sel_ip="${raw_pair%% *}"
             print_vless_links "$sel_ip" "$DEFAULT_VLESS_HOST"
             echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari Twin IP lagi, atau ${RED}[0]${WHITE} Exit : "
@@ -703,12 +868,15 @@ clone_twin_ip() {
         fi
         ((batch_num++))
     done
+    rm -f "$seen_session"
 }
 
-# --- MENU 4: SEARCH BY COUNTRY / REGION / CITY ---
+# ==============================================================
+# MENU 4: SEARCH BY COUNTRY / REGION / CITY (FRESH ATAS + LAMA BAWAH)
+# ==============================================================
 search_by_location() {
     show_banner
-    echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY (VLESS WS READY) ]${NC}"
+    echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY (NO-REPEAT) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Lokasi (cth: Singapore, Tokyo, USA) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
     read -r query_loc
     echo -ne "${NC}"
@@ -718,33 +886,41 @@ search_by_location() {
     fi
 
     clean_q=$(echo "$query_loc" | xargs)
+    local seen_session="/tmp/seen_menu4_$$.txt"
+    > "$seen_session"
     local batch_num=1
 
     while true; do
         show_banner
-        echo -e "${CYAN}╭─[ 4. SEARCH LOCATION : ${YELLOW}${clean_q}${CYAN} (1003 + VLESS WS | Batch #${batch_num}) ]${NC}\n"
+        echo -e "${CYAN}╭─[ 4. SEARCH LOCATION : ${YELLOW}${clean_q}${CYAN} (Fresh Atas / Lama Bawah | Batch #${batch_num}) ]${NC}\n"
+
+        mapfile -t old_locs < "$seen_session" 2>/dev/null
 
         > /tmp/loc_candidate_ips.txt
         > /tmp/loc_live_1003.txt
 
         while IFS= read -r prefix; do
             [ -z "$prefix" ] && continue
-            for _ in {1..16}; do
+            for _ in {1..18}; do
                 cidr_to_random_ip "$prefix" >> /tmp/loc_candidate_ips.txt
             done
         done < <(generate_cf_prefixes)
 
-        shuf -n 270 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
+        awk '!seen[$0]++' /tmp/loc_candidate_ips.txt > /tmp/loc_raw_u.txt
+        if [ -s "$seen_session" ]; then
+            awk -F'|' '{print $1}' "$seen_session" > /tmp/loc_seen_ips.txt
+            grep -vxFf /tmp/loc_seen_ips.txt /tmp/loc_raw_u.txt | shuf -n 270 > /tmp/loc_unique.txt
+        else
+            shuf -n 270 /tmp/loc_raw_u.txt > /tmp/loc_unique.txt
+        fi
 
         (verify_1003_and_vless_ws /tmp/loc_unique.txt /tmp/loc_live_1003.txt "$DEFAULT_VLESS_HOST") &
-        loading_spinner $! "Mengimbas 20 IP Error 1003 + VLESS WS untuk '${clean_q}'..."
+        loading_spinner $! "Mengimbas IP BAHARU untuk lokasi '${clean_q}' (Batch #${batch_num})..."
 
         mapfile -t live_ips < <(head -n 180 /tmp/loc_live_1003.txt)
-        found_ips=()
+        fresh_locs=()
 
-        if [ ${#live_ips[@]} -eq 0 ]; then
-            echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
-        else
+        if [ ${#live_ips[@]} -gt 0 ]; then
             rm -f /tmp/batch_loc_*.json
             for round in 1 2; do
                 start_idx=$(( (round - 1) * 90 ))
@@ -771,55 +947,74 @@ search_by_location() {
                 /tmp/all_batch_loc.json 2>/dev/null >> /tmp/final_loc_matched.txt
 
             awk -F'|' '!seen[$1]++' /tmp/final_loc_matched.txt | head -n 20 > /tmp/final_loc_clean.txt
-            mapfile -t matched_locs < /tmp/final_loc_clean.txt
+            mapfile -t fresh_locs < /tmp/final_loc_clean.txt
+        fi
 
-            echo -e "${GREEN}[✔] Selesai! 20 IP Error 1003 + VLESS WS untuk '${YELLOW}${clean_q}${GREEN}':${NC}\n"
-
-            count=1
-            for entry in "${matched_locs[@]}"; do
+        echo -e "${GREEN}╭───[ ★ HASIL BAHARU / FRESH UNTUK '${clean_q}' (Batch #${batch_num} - ${#fresh_locs[@]} IP) ★ ]───╮${NC}"
+        all_selectable_ips=()
+        count=1
+        if [ ${#fresh_locs[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada lagi IP baharu ditemui. Semua rekod terdahulu ada di bawah.${NC}"
+        else
+            for entry in "${fresh_locs[@]}"; do
                 IFS='|' read -r f_ip f_city f_reg f_cnt f_zip f_isp <<< "$entry"
-                found_ips+=("$f_ip")
-                printf "${GREEN}%-3s %-16s [ 1003+WS ✔ | %s, %s, %s | Zip:%s ]${NC}\n" "${count}." "$f_ip" "$f_city" "$f_reg" "$f_cnt" "${f_zip:-N/A}"
+                all_selectable_ips+=("$f_ip")
+                echo "$entry" >> "$seen_session"
+                printf "  ${GREEN}%-3s %-16s [ 1003+WS ✔ | %s, %s, %s | Zip:%s ]${NC}\n" "${count}." "$f_ip" "$f_city" "$f_reg" "$f_cnt" "${f_zip:-N/A}"
                 ((count++))
             done
 
             current_date=$(LC_TIME=C date +"%A %dth %B %Y")
             {
                 echo "$current_date"
-                echo "Search Location : $clean_q (VLESS WS - Batch #${batch_num})"
+                echo "Search Location : $clean_q (Fresh Batch #${batch_num})"
                 echo "Ip Address Found :"
                 c=1
-                for f_ip in "${found_ips[@]}"; do
-                    echo "${c}. ${f_ip}"
+                for entry in "${fresh_locs[@]}"; do
+                    echo "${c}. ${entry%%|*}"
                     ((c++))
                 done
                 echo "--------------------------------------------------"
             } >> "$HISTORY_FILE"
         fi
 
+        if [ ${#old_locs[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD LAMA / SUDAH DIBACA (${#old_locs[@]} IP Terdahulu) ]───╮${NC}"
+            for old_e in "${old_locs[@]}"; do
+                IFS='|' read -r o_ip o_city o_reg o_cnt o_zip o_isp <<< "$old_e"
+                all_selectable_ips+=("$o_ip")
+                printf "  ${GRAY}%-3s %-16s [ Sudah Dibaca | %s, %s | Zip:%s ]${NC}\n" "${count}." "$o_ip" "$o_city" "$o_cnt" "${o_zip:-N/A}"
+                ((count++))
+            done
+        fi
+
         rm -f /tmp/loc_*.txt /tmp/batch_loc_*.json /tmp/all_batch_loc.json /tmp/final_loc_*.txt
 
+        total_sel=${#all_selectable_ips[@]}
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi, taip ${YELLOW}[1-20]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} cari IP Fresh lagi, taip ${YELLOW}[1-${total_sel}]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
-        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "${#found_ips[@]}" ]; then
-            sel_ip="${found_ips[$((choice_loop-1))]}"
+        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "$total_sel" ]; then
+            sel_ip="${all_selectable_ips[$((choice_loop-1))]}"
             print_vless_links "$sel_ip" "$DEFAULT_VLESS_HOST"
-            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari 20 IP lagi, atau ${RED}[0]${WHITE} Exit : "
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari IP Fresh lagi, atau ${RED}[0]${WHITE} Exit : "
             read -r sub_c
             [ "$sub_c" == "0" ] && break
         fi
         ((batch_num++))
     done
+    rm -f "$seen_session"
 }
 
-# --- MENU 5: SEARCH BY POSTCODE ---
+# ==============================================================
+# MENU 5: SEARCH BY POSTCODE (FRESH ATAS + LAMA BAWAH)
+# ==============================================================
 search_by_postcode() {
     show_banner
-    echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE (VLESS WS READY) ]${NC}"
+    echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE (NO-REPEAT) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Postcode / Zipcode (cth: 75001, M5V) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
     read -r query_zip
     echo -ne "${NC}"
@@ -829,33 +1024,41 @@ search_by_postcode() {
     fi
 
     clean_z=$(echo "$query_zip" | xargs)
+    local seen_session="/tmp/seen_menu5_$$.txt"
+    > "$seen_session"
     local batch_num=1
 
     while true; do
         show_banner
-        echo -e "${CYAN}╭─[ 5. SEARCH POSTCODE : ${YELLOW}${clean_z}${CYAN} (1003 + VLESS WS | Batch #${batch_num}) ]${NC}\n"
+        echo -e "${CYAN}╭─[ 5. SEARCH POSTCODE : ${YELLOW}${clean_z}${CYAN} (Fresh Atas / Lama Bawah | Batch #${batch_num}) ]${NC}\n"
+
+        mapfile -t old_zips < "$seen_session" 2>/dev/null
 
         > /tmp/zip_candidate_ips.txt
         > /tmp/zip_live_1003.txt
 
         while IFS= read -r prefix; do
             [ -z "$prefix" ] && continue
-            for _ in {1..16}; do
+            for _ in {1..18}; do
                 cidr_to_random_ip "$prefix" >> /tmp/zip_candidate_ips.txt
             done
         done < <(generate_cf_prefixes)
 
-        shuf -n 270 /tmp/zip_candidate_ips.txt > /tmp/zip_unique.txt
+        awk '!seen[$0]++' /tmp/zip_candidate_ips.txt > /tmp/zip_raw_u.txt
+        if [ -s "$seen_session" ]; then
+            awk -F'|' '{print $1}' "$seen_session" > /tmp/zip_seen_ips.txt
+            grep -vxFf /tmp/zip_seen_ips.txt /tmp/zip_raw_u.txt | shuf -n 270 > /tmp/zip_unique.txt
+        else
+            shuf -n 270 /tmp/zip_raw_u.txt > /tmp/zip_unique.txt
+        fi
 
         (verify_1003_and_vless_ws /tmp/zip_unique.txt /tmp/zip_live_1003.txt "$DEFAULT_VLESS_HOST") &
-        loading_spinner $! "Mengimbas 20 IP Error 1003 + VLESS WS untuk poskod $clean_z..."
+        loading_spinner $! "Mengimbas IP BAHARU untuk poskod $clean_z (Batch #${batch_num})..."
 
         mapfile -t live_ips < <(head -n 180 /tmp/zip_live_1003.txt)
-        found_ips=()
+        fresh_zips=()
 
-        if [ ${#live_ips[@]} -eq 0 ]; then
-            echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
-        else
+        if [ ${#live_ips[@]} -gt 0 ]; then
             rm -f /tmp/batch_zip_*.json
             for round in 1 2; do
                 start_idx=$(( (round - 1) * 90 ))
@@ -878,55 +1081,74 @@ search_by_postcode() {
                 /tmp/all_batch_zip.json 2>/dev/null >> /tmp/final_zip_matched.txt
 
             awk -F'|' '!seen[$1]++' /tmp/final_zip_matched.txt | head -n 20 > /tmp/final_zip_clean.txt
-            mapfile -t matched_zips < /tmp/final_zip_clean.txt
+            mapfile -t fresh_zips < /tmp/final_zip_clean.txt
+        fi
 
-            echo -e "${GREEN}[✔] Selesai! 20 IP Error 1003 + VLESS WS untuk Poskod '${YELLOW}${clean_z}${GREEN}':${NC}\n"
-
-            count=1
-            for entry in "${matched_zips[@]}"; do
+        echo -e "${GREEN}╭───[ ★ HASIL BAHARU / FRESH POSKOD '${clean_z}' (Batch #${batch_num} - ${#fresh_zips[@]} IP) ★ ]───╮${NC}"
+        all_selectable_ips=()
+        count=1
+        if [ ${#fresh_zips[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada lagi IP baharu ditemui. Semua rekod terdahulu ada di bawah.${NC}"
+        else
+            for entry in "${fresh_zips[@]}"; do
                 IFS='|' read -r f_ip f_city f_reg f_cnt f_zip f_isp <<< "$entry"
-                found_ips+=("$f_ip")
-                printf "${GREEN}%-3s %-16s [ 1003+WS ✔ | Zip:%s | %s, %s | %s ]${NC}\n" "${count}." "$f_ip" "${f_zip:-N/A}" "$f_city" "$f_cnt" "$f_isp"
+                all_selectable_ips+=("$f_ip")
+                echo "$entry" >> "$seen_session"
+                printf "  ${GREEN}%-3s %-16s [ 1003+WS ✔ | Zip:%s | %s, %s | %s ]${NC}\n" "${count}." "$f_ip" "${f_zip:-N/A}" "$f_city" "$f_cnt" "$f_isp"
                 ((count++))
             done
 
             current_date=$(LC_TIME=C date +"%A %dth %B %Y")
             {
                 echo "$current_date"
-                echo "Search Postcode : $clean_z (VLESS WS - Batch #${batch_num})"
+                echo "Search Postcode : $clean_z (Fresh Batch #${batch_num})"
                 echo "Ip Address Found :"
                 c=1
-                for f_ip in "${found_ips[@]}"; do
-                    echo "${c}. ${f_ip}"
+                for entry in "${fresh_zips[@]}"; do
+                    echo "${c}. ${entry%%|*}"
                     ((c++))
                 done
                 echo "--------------------------------------------------"
             } >> "$HISTORY_FILE"
         fi
 
+        if [ ${#old_zips[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD LAMA / SUDAH DIBACA (${#old_zips[@]} IP Terdahulu) ]───╮${NC}"
+            for old_e in "${old_zips[@]}"; do
+                IFS='|' read -r o_ip o_city o_reg o_cnt o_zip o_isp <<< "$old_e"
+                all_selectable_ips+=("$o_ip")
+                printf "  ${GRAY}%-3s %-16s [ Sudah Dibaca | Zip:%s | %s, %s ]${NC}\n" "${count}." "$o_ip" "${o_zip:-N/A}" "$o_city" "$o_cnt"
+                ((count++))
+            done
+        fi
+
         rm -f /tmp/zip_*.txt /tmp/batch_zip_*.json /tmp/all_batch_zip.json /tmp/final_zip_*.txt
 
+        total_sel=${#all_selectable_ips[@]}
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi, taip ${YELLOW}[1-20]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} cari IP Fresh lagi, taip ${YELLOW}[1-${total_sel}]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
-        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "${#found_ips[@]}" ]; then
-            sel_ip="${found_ips[$((choice_loop-1))]}"
+        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "$total_sel" ]; then
+            sel_ip="${all_selectable_ips[$((choice_loop-1))]}"
             print_vless_links "$sel_ip" "$DEFAULT_VLESS_HOST"
-            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari 20 IP lagi, atau ${RED}[0]${WHITE} Exit : "
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari IP Fresh lagi, atau ${RED}[0]${WHITE} Exit : "
             read -r sub_c
             [ "$sub_c" == "0" ] && break
         fi
         ((batch_num++))
     done
+    rm -f "$seen_session"
 }
 
-# --- MENU 6: SEARCH DOMAIN IP ADDRESS (LIVE DNS VERIFIED) ---
+# ==============================================================
+# MENU 6: SEARCH DOMAIN IP ADDRESS (FRESH ATAS + LAMA BAWAH)
+# ==============================================================
 search_domain_by_ip() {
     show_banner
-    echo -e "${CYAN}╭─[ 6. SEARCH DOMAIN IP ADDRESS (ORIGINAL HOST + LIVE DNS) ]${NC}"
+    echo -e "${CYAN}╭─[ 6. SEARCH DOMAIN IP ADDRESS (NO-REPEAT + LIVE DNS) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address (cth: 104.18.21.212) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
     read -r target_ip
     echo -ne "${NC}"
@@ -941,31 +1163,25 @@ search_domain_by_ip() {
         return
     fi
 
+    local seen_session="/tmp/seen_menu6_$$.txt"
+    > "$seen_session"
+    local batch_num=1
+
     while true; do
         show_banner
-        echo ""
-        (curl -s "http://ip-api.com/json/${target_ip}?fields=status,country,countryCode,regionName,city,isp,as" > /tmp/dom_ip_info.json) &
-        loading_spinner $! "Mengambil maklumat rangkaian bagi $target_ip..."
-
-        country=$(jq -r '.country // "Unknown"' /tmp/dom_ip_info.json 2>/dev/null)
-        city=$(jq -r '.city // "Unknown"' /tmp/dom_ip_info.json 2>/dev/null)
-        isp=$(jq -r '.isp // "Unknown"' /tmp/dom_ip_info.json 2>/dev/null)
-        asn=$(jq -r '.as // "Unknown"' /tmp/dom_ip_info.json 2>/dev/null)
-        rm -f /tmp/dom_ip_info.json
-
         echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip}${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Lokasi     :${NC} ${CYAN}${city}, ${country}${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}ISP / ASN  :${NC} ${CYAN}${isp} (${asn})${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip} ${GRAY}(Batch #${batch_num})${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Mode       :${NC} ${GREEN}Original Host + Fresh Domain Atas ✔${NC}"
         echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
         echo ""
 
-        (reverse_ip_domains_worker "$target_ip") &
-        loading_spinner $! "Mengesan Domain Original & mengesahkan Live DNS bagi $target_ip..."
+        mapfile -t old_doms < "$seen_session" 2>/dev/null
+
+        (reverse_ip_domains_worker "$target_ip" "$seen_session") &
+        loading_spinner $! "Mengesan Domain BAHARU pada IP $target_ip (Batch #${batch_num})..."
 
         orig_host=$(cat /tmp/rev_original_host.txt 2>/dev/null | xargs)
-        mapfile -t all_dom_lines < /tmp/rev_domains_clean.txt 2>/dev/null
-        total_dom=${#all_dom_lines[@]}
+        mapfile -t fresh_dom_lines < /tmp/rev_domains_clean.txt 2>/dev/null
 
         echo -e "${YELLOW}╭───[ ★ ORIGINAL DOMAIN / HOST BAGI IP ${target_ip} ★ ]───╮${NC}"
         if [ -n "$orig_host" ]; then
@@ -975,40 +1191,52 @@ search_domain_by_ip() {
         fi
         echo -e "${YELLOW}╰────────────────────────────────────────────────────────────╯${NC}\n"
 
-        all_domains=()
-        if [ "$total_dom" -eq 0 ]; then
-            echo -e "${GRAY}[i] Tiada domain tambahan lain ditemui pada IP ${target_ip}.${NC}"
+        echo -e "${GREEN}╭───[ ★ DOMAIN BAHARU / FRESH (Batch #${batch_num} - ${#fresh_dom_lines[@]} Domain) ★ ]───╮${NC}"
+        all_selectable_doms=()
+        count=1
+        if [ ${#fresh_dom_lines[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada lagi domain baharu untuk IP ini. Semua domain telah disenaraikan di bawah.${NC}"
         else
-            echo -e "${CYAN}╭───[ SENARAI PENGGUNA DNS PADA IP ${target_ip} (Live DNS Verified) ]───╮${NC}"
-            count=1
-            for d_entry in "${all_dom_lines[@]}"; do
+            for d_entry in "${fresh_dom_lines[@]}"; do
                 IFS='|' read -r dom live_ip <<< "$d_entry"
-                all_domains+=("$dom")
-                printf "${GREEN}%-4s${NC} ${WHITE}%-36s${NC} ${CYAN}[ Live IP -> %s ]${NC}\n" "${count}." "$dom" "$live_ip"
+                all_selectable_doms+=("$dom")
+                echo "$d_entry" >> "$seen_session"
+                printf "  ${GREEN}%-4s${NC} ${WHITE}%-36s${NC} ${CYAN}[ Live IP -> %s ]${NC}\n" "${count}." "$dom" "$live_ip"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Search Domain IP : $target_ip (Batch #${batch_num})"
+                echo "Original Domain  : ${orig_host:-N/A}"
+                echo "Ip Address Found :"
+                c=1
+                for d_entry in "${fresh_dom_lines[@]}"; do
+                    IFS='|' read -r dom live_ip <<< "$d_entry"
+                    echo "${c}. ${dom} -> ${live_ip}"
+                    ((c++))
+                done
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
+        fi
+
+        if [ ${#old_doms[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD DOMAIN LAMA / SUDAH DIBACA (${#old_doms[@]} Domain) ]───╮${NC}"
+            for old_e in "${old_doms[@]}"; do
+                IFS='|' read -r o_dom o_lip <<< "$old_e"
+                all_selectable_doms+=("$o_dom")
+                printf "  ${GRAY}%-4s %-36s [ Sudah Dibaca -> %s ]${NC}\n" "${count}." "$o_dom" "$o_lip"
                 ((count++))
             done
         fi
 
-        current_date=$(LC_TIME=C date +"%A %dth %B %Y")
-        {
-            echo "$current_date"
-            echo "Search Domain IP : $target_ip"
-            echo "Original Domain  : ${orig_host:-N/A}"
-            echo "Ip Address Found :"
-            c=1
-            for d_entry in "${all_dom_lines[@]:0:50}"; do
-                IFS='|' read -r dom live_ip <<< "$d_entry"
-                echo "${c}. ${dom} -> ${live_ip}"
-                ((c++))
-            done
-            echo "--------------------------------------------------"
-        } >> "$HISTORY_FILE"
-
         rm -f /tmp/rev_domains_*.txt /tmp/rev_original_host.txt
 
+        total_sel=${#all_selectable_doms[@]}
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} ulang semak ${YELLOW}${target_ip}${WHITE}, taip ${YELLOW}[00]${WHITE}/${YELLOW}[1-${total_dom}]${WHITE} jana VLESS, atau ${RED}[0]${WHITE} Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} cari Domain Fresh lagi, taip ${YELLOW}[00]${WHITE}/${YELLOW}[1-${total_sel}]${WHITE} VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r dom_choice
         if [ "$dom_choice" == "0" ]; then
             break
@@ -1017,20 +1245,24 @@ search_domain_by_ip() {
             echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung, atau ${RED}[0]${WHITE} Exit : "
             read -r sub_c
             [ "$sub_c" == "0" ] && break
-        elif [[ "$dom_choice" =~ ^[0-9]+$ ]] && [ "$dom_choice" -ge 1 ] && [ "$dom_choice" -le "$total_dom" ]; then
-            sel_dom="${all_domains[$((dom_choice-1))]}"
+        elif [[ "$dom_choice" =~ ^[0-9]+$ ]] && [ "$dom_choice" -ge 1 ] && [ "$dom_choice" -le "$total_sel" ]; then
+            sel_dom="${all_selectable_doms[$((dom_choice-1))]}"
             print_vless_links "$target_ip" "$sel_dom"
             echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung, atau ${RED}[0]${WHITE} Exit : "
             read -r sub_c
             [ "$sub_c" == "0" ] && break
         fi
+        ((batch_num++))
     done
+    rm -f "$seen_session"
 }
 
-# --- MENU 7: SEARCH IP DOMAIN (LIVE DNS VERIFIED) ---
+# ==============================================================
+# MENU 7: SEARCH IP DOMAIN (FRESH ATAS + LAMA BAWAH)
+# ==============================================================
 search_ip_by_domain() {
     show_banner
-    echo -e "${CYAN}╭─[ 7. SEARCH IP DOMAIN (DOMAIN TO IP + LIVE DNS RECORDS) ]${NC}"
+    echo -e "${CYAN}╭─[ 7. SEARCH IP DOMAIN (NO-REPEAT + LIVE DNS) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Domain (cth: sub.viu.com) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
     read -r raw_dom
     echo -ne "${NC}"
@@ -1040,22 +1272,26 @@ search_ip_by_domain() {
     fi
 
     target_dom=$(echo "$raw_dom" | sed -E 's#^https?://##; s#/.*$##' | tr '[:upper:]' '[:lower:]' | xargs)
+    local seen_session="/tmp/seen_menu7_$$.txt"
+    > "$seen_session"
+    local batch_num=1
 
     while true; do
         show_banner
         echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Domain Target :${NC} ${YELLOW}${target_dom}${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Mod Carian    :${NC} ${GREEN}Original IP + Live Resolved DNS ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Domain Target :${NC} ${YELLOW}${target_dom} ${GRAY}(Batch #${batch_num})${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Mod Carian    :${NC} ${GREEN}Original IP + Fresh DNS Atas ✔${NC}"
         echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
         echo ""
 
-        (domain_to_ip_worker "$target_dom") &
-        loading_spinner $! "Mencari Original IP & menyemak Live DNS bagi ${target_dom}..."
+        mapfile -t old_dns < "$seen_session" 2>/dev/null
+
+        (domain_to_ip_worker "$target_dom" "$seen_session") &
+        loading_spinner $! "Mencari Rekod DNS BAHARU bagi ${target_dom} (Batch #${batch_num})..."
 
         cname_rec=$(cat /tmp/dom_cname.txt 2>/dev/null | xargs)
         mapfile -t orig_ip_lines < /tmp/dom_orig_details.txt 2>/dev/null
-        mapfile -t other_dns_lines < /tmp/dom_other_clean.txt 2>/dev/null
-        total_other=${#other_dns_lines[@]}
+        mapfile -t fresh_dns_lines < /tmp/dom_other_clean.txt 2>/dev/null
 
         echo -e "${YELLOW}╭───[ ★ ORIGINAL IP ADDRESS DIGUNAKAN OLEH: ${target_dom} ★ ]───╮${NC}"
         if [ -n "$cname_rec" ]; then
@@ -1076,42 +1312,55 @@ search_ip_by_domain() {
         fi
         echo -e "${YELLOW}╰───────────────────────────────────────────────────────────────────╯${NC}\n"
 
-        if [ "$total_other" -eq 0 ]; then
-            echo -e "${GRAY}[i] Tiada rekod DNS pihak lain / subdomain tambahan ditemui.${NC}"
+        echo -e "${GREEN}╭───[ ★ REKOD DNS BAHARU / FRESH (Batch #${batch_num} - ${#fresh_dns_lines[@]} Rekod) ★ ]───╮${NC}"
+        other_ips=()
+        other_hosts=()
+        count=1
+        if [ ${#fresh_dns_lines[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada lagi rekod DNS baharu ditemui. Semua rekod terdahulu ada di bawah.${NC}"
         else
-            echo -e "${CYAN}╭───[ SENARAI REKOD DNS LAIN / SUBDOMAIN BERKAITAN (${total_other} Live DNS) ]───╮${NC}"
-            count=1
-            other_ips=()
-            other_hosts=()
-            for d_line in "${other_dns_lines[@]}"; do
+            for d_line in "${fresh_dns_lines[@]}"; do
                 IFS='|' read -r d_host d_ip <<< "$d_line"
                 other_hosts+=("$d_host")
                 other_ips+=("$d_ip")
-                printf "${GREEN}%-4s${NC} ${WHITE}%-36s${NC} ${YELLOW}➜ %-15s${NC} ${CYAN}[Live IP]${NC}\n" "${count}." "$d_host" "$d_ip"
+                echo "$d_line" >> "$seen_session"
+                printf "  ${GREEN}%-4s${NC} ${WHITE}%-36s${NC} ${YELLOW}➜ %-15s${NC} ${CYAN}[Live IP]${NC}\n" "${count}." "$d_host" "$d_ip"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Search IP Domain : $target_dom (Batch #${batch_num})"
+                echo "Original IP      : ${orig_ips_only[*]:-N/A}"
+                echo "Ip Address Found :"
+                c=1
+                for d_line in "${fresh_dns_lines[@]}"; do
+                    IFS='|' read -r d_host d_ip <<< "$d_line"
+                    echo "${c}. ${d_host} -> ${d_ip}"
+                    ((c++))
+                done
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
+        fi
+
+        if [ ${#old_dns[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD DNS LAMA / SUDAH DIBACA (${#old_dns[@]} Rekod) ]───╮${NC}"
+            for old_e in "${old_dns[@]}"; do
+                IFS='|' read -r o_host o_ip <<< "$old_e"
+                other_hosts+=("$o_host")
+                other_ips+=("$o_ip")
+                printf "  ${GRAY}%-4s %-36s ➜ %-15s [Sudah Dibaca]${NC}\n" "${count}." "$o_host" "$o_ip"
                 ((count++))
             done
         fi
 
-        current_date=$(LC_TIME=C date +"%A %dth %B %Y")
-        {
-            echo "$current_date"
-            echo "Search IP Domain : $target_dom"
-            echo "Original IP      : ${orig_ips_only[*]:-N/A}"
-            echo "Ip Address Found :"
-            c=1
-            for d_line in "${other_dns_lines[@]:0:40}"; do
-                IFS='|' read -r d_host d_ip <<< "$d_line"
-                echo "${c}. ${d_host} -> ${d_ip}"
-                ((c++))
-            done
-            echo "--------------------------------------------------"
-        } >> "$HISTORY_FILE"
-
         rm -f /tmp/dom_orig_*.txt /tmp/dom_cname.txt /tmp/dom_other_*.txt
 
+        total_sel=${#other_ips[@]}
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} semak semula ${YELLOW}${target_dom}${WHITE}, taip ${YELLOW}[01]${WHITE} VLESS Original IP, ${YELLOW}[1-${total_other}]${WHITE} VLESS Rekod Lain, atau ${RED}[0]${WHITE} Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} cari Rekod Fresh lagi, taip ${YELLOW}[01]${WHITE} VLESS Orig, ${YELLOW}[1-${total_sel}]${WHITE} VLESS Lain, atau ${RED}[0]${WHITE} Exit : "
         read -r ip_dom_choice
         if [ "$ip_dom_choice" == "0" ]; then
             break
@@ -1123,7 +1372,7 @@ search_ip_by_domain() {
                 read -r sub_c
                 [ "$sub_c" == "0" ] && break
             fi
-        elif [[ "$ip_dom_choice" =~ ^[0-9]+$ ]] && [ "$ip_dom_choice" -ge 1 ] && [ "$ip_dom_choice" -le "$total_other" ]; then
+        elif [[ "$ip_dom_choice" =~ ^[0-9]+$ ]] && [ "$ip_dom_choice" -ge 1 ] && [ "$ip_dom_choice" -le "$total_sel" ]; then
             sel_ip="${other_ips[$((ip_dom_choice-1))]}"
             sel_host="${other_hosts[$((ip_dom_choice-1))]}"
             print_vless_links "$sel_ip" "$sel_host"
@@ -1131,12 +1380,19 @@ search_ip_by_domain() {
             read -r sub_c
             [ "$sub_c" == "0" ] && break
         fi
+        ((batch_num++))
     done
+    rm -f "$seen_session"
 }
 
-# --- MENU 8: BUG HUNTER ---
+# ==============================================================
+# MENU 8: BUG HUNTER (FRESH ATAS + REKOD LAMA TURUN BAWAH)
+# ==============================================================
 bug_hunter_menu() {
     local batch_num=1
+    local seen_session="/tmp/seen_menu8_$$.txt"
+    > "$seen_session"
+
     local top_ips=(
         "104.18.21.212"
         "104.18.20.212"
@@ -1163,25 +1419,27 @@ bug_hunter_menu() {
         done
         echo -e "${YELLOW}╰────────────────────────────────────────────────────────────────╯${NC}\n"
 
-        (bug_hunter_worker) &
-        loading_spinner $! "Mencari IP Bug Hunter baharu & mengesan Domain Original (Batch #${batch_num})..."
+        mapfile -t old_bh < "$seen_session" 2>/dev/null
 
-        mapfile -t bh_lines < /tmp/bh_final_results.txt 2>/dev/null
-        total_bh=${#bh_lines[@]}
+        (bug_hunter_worker "$seen_session") &
+        loading_spinner $! "Mencari IP Bug Hunter BAHARU & Domain Original (Batch #${batch_num})..."
 
-        echo -e "${CYAN}╭───[ SENARAI IP BUG HUNTER LAIN + DOMAIN ORIGINAL (Batch #${batch_num}) ]───╮${NC}\n"
+        mapfile -t fresh_bh < /tmp/bh_final_results.txt 2>/dev/null
+
+        echo -e "${GREEN}╭───[ ★ IP BUG HUNTER BAHARU / FRESH (Batch #${batch_num} - ${#fresh_bh[@]} IP) ★ ]───╮${NC}"
 
         bh_ips=()
         bh_doms=()
-        if [ "$total_bh" -eq 0 ]; then
-            echo -e "  ${RED}Tiada IP tambahan ditemui pada pusingan ini. Tekan Enter untuk Search More.${NC}"
+        count=1
+        if [ ${#fresh_bh[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada IP baharu ditemui pada pusingan ini. Semua rekod terdahulu ada di bawah.${NC}"
         else
-            count=1
-            for entry in "${bh_lines[@]}"; do
+            for entry in "${fresh_bh[@]}"; do
                 IFS='|' read -r b_ip b_dom <<< "$entry"
                 bh_ips+=("$b_ip")
                 bh_doms+=("$b_dom")
-                printf "  ${GREEN}%-3s${NC} ${WHITE}%-16s${NC} - ${CYAN}%s${NC} ${GREEN}[1003+WS ✔]${NC}\n" "${count}." "$b_ip" "$b_dom"
+                echo "$entry" >> "$seen_session"
+                printf "  ${GREEN}%-3s${NC} ${WHITE}%-16s${NC} - ${CYAN}%s${NC} ${GREEN}[FRESH 1003+WS ✔]${NC}\n" "${count}." "$b_ip" "$b_dom"
                 ((count++))
             done
 
@@ -1191,19 +1449,32 @@ bug_hunter_menu() {
                 echo "Bug Hunter Scan  : Batch #${batch_num}"
                 echo "Ip Address Found :"
                 c=1
-                for idx in "${!bh_ips[@]}"; do
-                    echo "${c}. ${bh_ips[$idx]} - ${bh_doms[$idx]}"
+                for entry in "${fresh_bh[@]}"; do
+                    IFS='|' read -r b_ip b_dom <<< "$entry"
+                    echo "${c}. ${b_ip} - ${b_dom}"
                     ((c++))
                 done
                 echo "--------------------------------------------------"
             } >> "$HISTORY_FILE"
         fi
 
+        if [ ${#old_bh[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD BUG HUNTER LAMA / SUDAH DIBACA (${#old_bh[@]} IP) ]───╮${NC}"
+            for old_e in "${old_bh[@]}"; do
+                IFS='|' read -r o_ip o_dom <<< "$old_e"
+                bh_ips+=("$o_ip")
+                bh_doms+=("$o_dom")
+                printf "  ${GRAY}%-3s %-16s - %s [Sudah Dibaca]${NC}\n" "${count}." "$o_ip" "$o_dom"
+                ((count++))
+            done
+        fi
+
         rm -f /tmp/bh_final_results.txt
 
+        total_sel=${#bh_ips[@]}
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} Search More, taip ${YELLOW}[01-06]${WHITE}/${YELLOW}[1-${total_bh}]${WHITE} Link VLESS, atau ${RED}[0]${WHITE} Back to Menu : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} Search More (Fresh), taip ${YELLOW}[01-06]${WHITE}/${YELLOW}[1-${total_sel}]${WHITE} Link VLESS, atau ${RED}[0]${WHITE} Back to Menu : "
         read -r bh_choice
 
         if [ "$bh_choice" == "0" ]; then
@@ -1214,7 +1485,7 @@ bug_hunter_menu() {
             echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Search More, atau ${RED}[0]${WHITE} Back to Menu : "
             read -r sub_c
             [ "$sub_c" == "0" ] && break
-        elif [[ "$bh_choice" =~ ^[0-9]+$ ]] && [ "$bh_choice" -ge 1 ] && [ "$bh_choice" -le "$total_bh" ]; then
+        elif [[ "$bh_choice" =~ ^[0-9]+$ ]] && [ "$bh_choice" -ge 1 ] && [ "$bh_choice" -le "$total_sel" ]; then
             s_idx=$(( bh_choice - 1 ))
             print_vless_links "${bh_ips[$s_idx]}" "${bh_doms[$s_idx]}"
             echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Search More, atau ${RED}[0]${WHITE} Back to Menu : "
@@ -1223,9 +1494,107 @@ bug_hunter_menu() {
         fi
         ((batch_num++))
     done
+    rm -f "$seen_session"
 }
 
-# --- MENU 3: SHOW HISTORY ---
+# ==============================================================
+# MENU 9: SEARCH DNS IPV6 ([2606:4700:3108::ac42:28aa])
+# ==============================================================
+search_dns_ipv6() {
+    show_banner
+    echo -e "${CYAN}╭─[ 9. SEARCH DNS IPV6 (FORMAT: [2606:4700:...]) ]${NC}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IPv4 atau Domain (cth: 172.66.40.170 / sub.viu.com) atau ${YELLOW}0${WHITE} Exit : ${YELLOW}"
+    read -r raw_q
+    echo -ne "${NC}"
+
+    if [ "$raw_q" == "0" ] || [ -z "$raw_q" ]; then
+        return
+    fi
+
+    clean_q=$(echo "$raw_q" | sed -E 's#^https?://##; s#/.*$##' | xargs)
+    local seen_session="/tmp/seen_menu9_$$.txt"
+    > "$seen_session"
+    local batch_num=1
+
+    while true; do
+        show_banner
+        echo -e "${BLUE}╭──────────────────────────────────────────────────────────╮${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Target Input :${NC} ${YELLOW}${clean_q} ${GRAY}(Batch #${batch_num})${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Format Output:${NC} ${GREEN}[2606:4700:xxxx::xxxx:xxxx] ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Mode         :${NC} ${CYAN}No-Repeat (Fresh Atas / Lama Bawah) ✔${NC}"
+        echo -e "${BLUE}╰──────────────────────────────────────────────────────────╯${NC}"
+        echo ""
+
+        mapfile -t old_v6 < "$seen_session" 2>/dev/null
+
+        (ipv6_dns_worker "$clean_q" "$seen_session") &
+        loading_spinner $! "Mencari rekod DNS IPv6 BAHARU bagi ${clean_q} (Batch #${batch_num})..."
+
+        mapfile -t fresh_v6 < /tmp/v6_fresh_output.txt 2>/dev/null
+
+        echo -e "${GREEN}╭───[ ★ REKOD DNS IPV6 BAHARU / FRESH (Batch #${batch_num} - ${#fresh_v6[@]} Rekod) ★ ]───╮${NC}"
+        all_v6_addrs=()
+        count=1
+        if [ ${#fresh_v6[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada lagi rekod IPv6 baharu ditemui. Semua rekod terdahulu ada di bawah.${NC}"
+        else
+            for v6_entry in "${fresh_v6[@]}"; do
+                IFS='|' read -r v6_brack v6_desc <<< "$v6_entry"
+                all_v6_addrs+=("$v6_brack")
+                echo "$v6_entry" >> "$seen_session"
+                printf "  ${GREEN}%-4s${NC} ${WHITE}%-34s${NC} ${CYAN}[ %s ]${NC}\n" "${count}." "$v6_brack" "$v6_desc"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Search DNS IPv6  : $clean_q (Batch #${batch_num})"
+                echo "Ip Address Found :"
+                c=1
+                for v6_entry in "${fresh_v6[@]}"; do
+                    IFS='|' read -r v6_brack v6_desc <<< "$v6_entry"
+                    echo "${c}. ${v6_brack} (${v6_desc})"
+                    ((c++))
+                done
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
+        fi
+
+        if [ ${#old_v6[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD IPV6 LAMA / SUDAH DIBACA (${#old_v6[@]} Rekod) ]───╮${NC}"
+            for old_e in "${old_v6[@]}"; do
+                IFS='|' read -r o_v6 o_desc <<< "$old_e"
+                all_v6_addrs+=("$o_v6")
+                printf "  ${GRAY}%-4s %-34s [ Sudah Dibaca | %s ]${NC}\n" "${count}." "$o_v6" "$o_desc"
+                ((count++))
+            done
+        fi
+
+        rm -f /tmp/v6_fresh_output.txt
+
+        total_sel=${#all_v6_addrs[@]}
+        echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
+        echo -e "${CYAN}──────────────────────────────────────────────────────────${NC}"
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} cari IPv6 Fresh lagi, taip ${YELLOW}[1-${total_sel}]${WHITE} jana VLESS IPv6, atau ${RED}[0]${WHITE} Exit : "
+        read -r v6_choice
+        if [ "$v6_choice" == "0" ]; then
+            break
+        elif [[ "$v6_choice" =~ ^[0-9]+$ ]] && [ "$v6_choice" -ge 1 ] && [ "$v6_choice" -le "$total_sel" ]; then
+            sel_v6="${all_v6_addrs[$((v6_choice-1))]}"
+            print_vless_links "$sel_v6" "$DEFAULT_VLESS_HOST"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari IPv6 Fresh lagi, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
+        fi
+        ((batch_num++))
+    done
+    rm -f "$seen_session"
+}
+
+# ==============================================================
+# MENU 3: SHOW HISTORY
+# ==============================================================
 show_history() {
     show_banner
     echo -e "${CYAN}╭──────────────────────────────────────────────────╮${NC}"
@@ -1238,7 +1607,7 @@ show_history() {
         while IFS= read -r line; do
             if [[ "$line" == "--------------------------------------------------" ]]; then
                 echo -e "${PURPLE}──────────────────────────────────────────────────${NC}"
-            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP|Original\ Domain|Search\ IP\ Domain|Original\ IP|Bug\ Hunter\ Scan) ]]; then
+            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP|Original\ Domain|Search\ IP\ Domain|Original\ IP|Bug\ Hunter\ Scan|Search\ DNS\ IPv6) ]]; then
                 echo -e "${YELLOW}${line}${NC}"
             elif [[ "$line" =~ ^Ip\ Address\ Found ]]; then
                 echo -e "${CYAN}${line}${NC}"
