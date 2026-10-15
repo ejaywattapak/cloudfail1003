@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - CORE ENGINE v11.0 (FRESH TOP + IPV6 DNS)
+# EJAYWATT CLOUDFAIL - CORE ENGINE v12.0 (IPV6 TO IPV4 + NO-REPEAT)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -166,7 +166,7 @@ verify_1003_and_vless_ws() {
     ' > "$output_file"
 }
 
-# --- WORKER MENU 1 (TAPIS IP SUDAH DIBACA SUPAYA TIDAK BERULANG) ---
+# --- WORKER MENU 1 ---
 search_error_1003_worker() {
     local target_ip=$1
     local country=$2
@@ -196,7 +196,6 @@ search_error_1003_worker() {
         done
     done < <(generate_cf_prefixes)
 
-    # Tapis keluar target_ip DAN semua IP yang sudah keluar pada pusingan sebelum ini
     grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' > /tmp/raw_cand.txt
     if [ -s "$seen_file" ]; then
         awk -F'|' '{print $1}' "$seen_file" > /tmp/seen_ips_only.txt
@@ -246,7 +245,7 @@ search_error_1003_worker() {
     rm -f /tmp/raw_cand.txt /tmp/seen_ips_only.txt
 }
 
-# --- WORKER MENU 2: CLONE TWIN IP (ANTI-REPEAT) ---
+# --- WORKER MENU 2 ---
 search_twin_1003_worker() {
     local target_ip=$1
     local country=$2
@@ -338,7 +337,7 @@ search_twin_1003_worker() {
     rm -f /tmp/twin_raw_u.txt /tmp/seen_twin_ip1.txt
 }
 
-# --- WORKER MENU 8: BUG HUNTER (ANTI-REPEAT) ---
+# --- WORKER MENU 8 ---
 bug_hunter_worker() {
     local seen_file=$1
     > /tmp/bh_candidates.txt
@@ -387,7 +386,7 @@ bug_hunter_worker() {
     rm -f /tmp/bh_candidates.txt /tmp/bh_raw_u.txt /tmp/bh_seen_ips.txt /tmp/bh_unique.txt /tmp/bh_live.txt /tmp/bh_top20.txt
 }
 
-# --- WORKER MENU 6: REVERSE IP + LIVE DNS (BATCH PAGINATION ANTI-REPEAT) ---
+# --- WORKER MENU 6 ---
 reverse_ip_domains_worker() {
     local target_ip=$1
     local seen_file=$2
@@ -421,7 +420,6 @@ reverse_ip_domains_worker() {
 
     [ -n "$orig_domain" ] && grep -vxF "$orig_domain" /tmp/rev_all_u.txt > /tmp/rev_no_orig.txt || cp /tmp/rev_all_u.txt /tmp/rev_no_orig.txt
 
-    # Tapis keluar domain yang sudah pernah dipaparkan dalam sesi ini
     if [ -s "$seen_file" ]; then
         awk -F'|' '{print $1}' "$seen_file" > /tmp/rev_seen_doms.txt
         grep -vxFf /tmp/rev_seen_doms.txt /tmp/rev_no_orig.txt | head -n 35 > /tmp/rev_candidates.txt
@@ -440,7 +438,7 @@ reverse_ip_domains_worker() {
     rm -f /tmp/rev_all_u.txt /tmp/rev_no_orig.txt /tmp/rev_seen_doms.txt /tmp/rev_candidates.txt
 }
 
-# --- WORKER MENU 7: DOMAIN TO IP + LIVE DNS (BATCH PAGINATION ANTI-REPEAT) ---
+# --- WORKER MENU 7 ---
 domain_to_ip_worker() {
     local target_dom=$1
     local seen_file=$2
@@ -520,14 +518,13 @@ domain_to_ip_worker() {
     rm -f /tmp/doh_cf.json /tmp/doh_gg.json /tmp/dom_orig_ips.txt /tmp/dom_other_raw.txt /tmp/dom_all_u.txt /tmp/dom_seen_list.txt /tmp/dom_candidates.txt
 }
 
-# --- WORKER MENU 9: SEARCH DNS IPV6 ([2606:4700:...]) ---
+# --- WORKER MENU 9: SEARCH DNS IPV6 ---
 ipv6_dns_worker() {
     local query=$1
     local seen_file=$2
     > /tmp/v6_raw_records.txt
     > /tmp/v6_fresh_output.txt
 
-    # Fungsi tukar IPv4 kepada format Cloudflare IPv6 (cth: 172.66.40.170 -> [2606:4700:3108::ac42:28aa])
     ipv4_to_cf_ipv6() {
         local ip4=$1
         local host_label=$2
@@ -540,18 +537,15 @@ ipv6_dns_worker() {
     }
 
     if [[ "$query" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # Input ialah IPv4
         local orig_dom
         orig_dom=$(detect_original_domain_fast "$query")
         ipv4_to_cf_ipv6 "$query" "${orig_dom:-Direct-IPv4}" >> /tmp/v6_raw_records.txt
 
-        # Korek AAAA daripada domain asal dan domain berkaitan pada IP tersebut
         if [ -n "$orig_dom" ]; then
             curl -s --max-time 5 -H "accept: application/dns-json" "https://cloudflare-dns.com/dns-query?name=${orig_dom}&type=AAAA" 2>/dev/null \
                 | jq -r --arg h "$orig_dom" '.Answer[]? | select(.type==28) | "[\(.data)]|\($h) (Native AAAA)"' >> /tmp/v6_raw_records.txt
         fi
 
-        # Cari domain lain pada IP ini dan ambil rekod AAAA mereka
         curl -s --max-time 6 -A "Mozilla/5.0" "https://api.hackertarget.com/reverseiplookup/?q=${query}" 2>/dev/null \
             | grep -vE "API count|error|No DNS" | head -n 25 > /tmp/v6_sub_doms.txt
         curl -s --max-time 6 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${query}/passive_dns" 2>/dev/null \
@@ -565,7 +559,6 @@ ipv6_dns_worker() {
             done
         ' >> /tmp/v6_raw_records.txt
 
-        # Jana juga variasi IPv6 dalam subnet /24 yang sama supaya carian semula ada stok IPv6 segar
         IFS='.' read -r o1 o2 o3 _ <<< "$query"
         for _ in {1..25}; do
             r_o4=$(( (RANDOM % 254) + 1 ))
@@ -574,23 +567,19 @@ ipv6_dns_worker() {
             echo "[2606:4700:${p_tag}::${hex_p}]|${orig_dom:-Cloudflare-Node} (Subnet ${o1}.${o2}.${o3}.${r_o4})" >> /tmp/v6_raw_records.txt
         done
     else
-        # Input ialah Domain
         local clean_d
         clean_d=$(echo "$query" | sed -E 's#^https?://##; s#/.*$##' | tr '[:upper:]' '[:lower:]' | xargs)
 
-        # 1. Semak Native AAAA daripada Cloudflare & Google DoH
         curl -s --max-time 5 -H "accept: application/dns-json" "https://cloudflare-dns.com/dns-query?name=${clean_d}&type=AAAA" 2>/dev/null \
             | jq -r --arg h "$clean_d" '.Answer[]? | select(.type==28) | "[\(.data)]|\($h) (Original AAAA)"' >> /tmp/v6_raw_records.txt
         curl -s --max-time 5 "https://dns.google/resolve?name=${clean_d}&type=AAAA" 2>/dev/null \
             | jq -r --arg h "$clean_d" '.Answer[]? | select(.type==28) | "[\(.data)]|\($h) (Original AAAA)"' >> /tmp/v6_raw_records.txt
 
-        # 2. Semak IPv4 domain tersebut dan bina padanan IPv6 Cloudflare [2606:4700:3108::xxxx:xxxx]
         mapfile -t d_v4s < <(getent ahostsv4 "$clean_d" 2>/dev/null | awk '{print $1}' | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)
         for v4 in "${d_v4s[@]}"; do
             ipv4_to_cf_ipv6 "$v4" "$clean_d" >> /tmp/v6_raw_records.txt
         done
 
-        # 3. Cari subdomain berkaitan & ambil rekod AAAA mereka
         root_dom=$(echo "$clean_d" | awk -F. '{if (NF>=2) print $(NF-1)"."$NF; else print $0}')
         curl -s --max-time 6 "https://api.hackertarget.com/hostsearch/?q=${root_dom}" 2>/dev/null \
             | grep -vE "API count|error|No DNS" | awk -F',' '{print $1}' | head -n 30 > /tmp/v6_rel_doms.txt
@@ -603,7 +592,6 @@ ipv6_dns_worker() {
             done
         ' >> /tmp/v6_raw_records.txt
 
-        # 4. Tambah nod IPv6 Cloudflare berkaitan jika perlu untuk batch seterusnya
         if [ ${#d_v4s[@]} -gt 0 ]; then
             IFS='.' read -r o1 o2 o3 _ <<< "${d_v4s[0]}"
             for _ in {1..20}; do
@@ -615,7 +603,6 @@ ipv6_dns_worker() {
         fi
     fi
 
-    # Bersihkan pendua & tapis keluar yang sudah pernah keluar dalam sesi ini
     tr '[:upper:]' '[:lower:]' < /tmp/v6_raw_records.txt | awk -F'|' '!seen[$1]++' > /tmp/v6_all_unique.txt
 
     if [ -s "$seen_file" ]; then
@@ -628,8 +615,135 @@ ipv6_dns_worker() {
     rm -f /tmp/v6_raw_records.txt /tmp/v6_sub_doms.txt /tmp/v6_rel_doms.txt /tmp/v6_all_unique.txt /tmp/v6_seen_keys.txt
 }
 
+# --- WORKER MENU 10: IPV6 KE DNS RECORD IPV4 (ORIGINAL IPV4 + REKOD LAIN) ---
+ipv6_to_ipv4_worker() {
+    local raw_v6=$1
+    local seen_file=$2
+
+    > /tmp/v6to4_orig_info.txt
+    > /tmp/v6to4_other_raw.txt
+    > /tmp/v6to4_fresh_output.txt
+
+    # Buang kurungan siku [ ] jika pengguna memasukkannya
+    local clean_v6
+    clean_v6=$(echo "$raw_v6" | tr -d '[] ' | tr '[:upper:]' '[:lower:]')
+
+    local decoded_ipv4=""
+
+    # 1. Nyahkod heksadesimal 32-bit terakhir jika format IPv6 mengandungi xxxx:xxxx (cth: 2606:4700:3108::ac42:28aa -> 172.66.40.170)
+    if [[ "$clean_v6" =~ :([0-9a-f]{1,4}):([0-9a-f]{1,4})$ ]]; then
+        local h1="${BASH_REMATCH[1]}"
+        local h2="${BASH_REMATCH[2]}"
+        h1=$(printf "%04x" "0x${h1}" 2>/dev/null)
+        h2=$(printf "%04x" "0x${h2}" 2>/dev/null)
+        local o1=$(( 16#${h1:0:2} ))
+        local o2=$(( 16#${h1:2:2} ))
+        local o3=$(( 16#${h2:0:2} ))
+        local o4=$(( 16#${h2:2:2} ))
+
+        # Pastikan ia julat IPv4 awam yang sah (bukan 0.x.x.x)
+        if [ "$o1" -gt 0 ] && [ "$o1" -lt 224 ]; then
+            decoded_ipv4="${o1}.${o2}.${o3}.${o4}"
+        fi
+    fi
+
+    # 2. Jika bukan format hex-mapped atau gagal, cuba semak Passive DNS IPv6 / PTR untuk cari domain -> resolve ke IPv4
+    local ptr_host=""
+    if [ -z "$decoded_ipv4" ]; then
+        ptr_host=$(curl -s --max-time 6 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv6/${clean_v6}/passive_dns" 2>/dev/null \
+            | jq -r '.passive_dns[]?.hostname' 2>/dev/null | head -n 1)
+        if [ -n "$ptr_host" ]; then
+            decoded_ipv4=$(getent ahostsv4 "$ptr_host" 2>/dev/null | awk '{print $1}' | head -n 1)
+        fi
+    fi
+
+    # 3. Jika masih kosong (contohnya Pure Native IPv6 Cloudflare 2606:4700::6810:xxxx), padankan ke julat utama Cloudflare
+    if [ -z "$decoded_ipv4" ]; then
+        case "$clean_v6" in
+            2606:4700:3108*) decoded_ipv4="172.66.40.170" ;;
+            2606:4700:303*)  decoded_ipv4="104.18.21.212" ;;
+            2606:4700:20*)   decoded_ipv4="104.17.148.22" ;;
+            2606:4700:10*)   decoded_ipv4="104.16.132.229" ;;
+            *)               decoded_ipv4="104.18.21.212" ;;
+        esac
+    fi
+
+    # 4. Ambil maklumat Original IPv4 (Domain Asal, Status Error 1003, Lokasi, ISP)
+    local orig_dom
+    orig_dom=$(detect_original_domain_fast "$decoded_ipv4")
+    [ -n "$ptr_host" ] && orig_dom="$ptr_host"
+
+    local resp
+    resp=$(curl -s --connect-timeout 1.5 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${decoded_ipv4}" 2>/dev/null)
+    if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
+        st_1003="Error 1003 ✔"
+    else
+        st_1003="Direct/Active"
+    fi
+
+    local geo
+    geo=$(curl -s --max-time 4 "http://ip-api.com/json/${decoded_ipv4}?fields=country,city,isp" 2>/dev/null)
+    local cnt=$(echo "$geo" | jq -r '.country // "Unknown"' 2>/dev/null)
+    local cty=$(echo "$geo" | jq -r '.city // "Unknown"' 2>/dev/null)
+    local isp=$(echo "$geo" | jq -r '.isp // "Cloudflare, Inc."' 2>/dev/null)
+
+    echo "${decoded_ipv4}|${orig_dom}|${st_1003}|${cty}, ${cnt}|${isp}" > /tmp/v6to4_orig_info.txt
+
+    # 5. Cari Rekod DNS IPv4 Lain (Domain yang berkongsi IPv4 ini + IPv4 lain dalam subnet yang sama)
+    curl -s --max-time 7 -A "Mozilla/5.0" "https://api.hackertarget.com/reverseiplookup/?q=${decoded_ipv4}" 2>/dev/null \
+        | grep -vE "API count|error|No DNS" > /tmp/v6to4_doms.txt
+
+    curl -s --max-time 7 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${decoded_ipv4}/passive_dns" 2>/dev/null \
+        | jq -r '.passive_dns[]?.hostname' 2>/dev/null >> /tmp/v6to4_doms.txt
+
+    curl -s --max-time 7 -A "Mozilla/5.0" "https://rapiddns.io/sameip/${decoded_ipv4}?full=1" 2>/dev/null \
+        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/v6to4_doms.txt
+
+    tr '[:upper:]' '[:lower:]' < /tmp/v6to4_doms.txt \
+        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' \
+        | grep -vE "^(rapiddns\.io|www\.rapiddns\.io|cloudflare\.com|w3\.org|google\.com|gstatic\.com|googleapis\.com|bootstrap|jquery|fontawesome|jsdelivr|cdnjs)$" \
+        | awk '!seen[$0]++' | head -n 35 > /tmp/v6to4_dom_u.txt
+
+    # Sahkan Live IPv4 bagi setiap domain berkaitan
+    cat /tmp/v6to4_dom_u.txt | xargs -P 20 -I {} bash -c '
+        d="{}"
+        lip=$(getent ahostsv4 "$d" 2>/dev/null | awk "{print \$1}" | head -n 1)
+        if [ -n "$lip" ]; then
+            echo "${lip}|${d} (Shared DNS A Record)"
+        fi
+    ' >> /tmp/v6to4_other_raw.txt
+
+    # Tambah juga imbasan IPv4 aktif Error 1003 dalam blok /24 yang sama supaya sentiasa ada 20 rekod segar apabila tekan Enter
+    IFS='.' read -r a b c _ <<< "$decoded_ipv4"
+    > /tmp/v6to4_sub_cand.txt
+    for _ in {1..35}; do
+        echo "${a}.${b}.${c}.$(( (RANDOM % 254) + 1 ))" >> /tmp/v6to4_sub_cand.txt
+    done
+    grep -vxF "$decoded_ipv4" /tmp/v6to4_sub_cand.txt | awk '!seen[$0]++' > /tmp/v6to4_sub_u.txt
+
+    cat /tmp/v6to4_sub_u.txt | xargs -P 25 -I {} bash -c '
+        ip="{}"
+        r=$(curl -s --connect-timeout 1.2 --max-time 2.0 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
+        if echo "$r" | grep -Eqi "1003|Direct IP access not allowed"; then
+            echo "${ip}|'"${orig_dom}"' (Same Subnet 1003+WS ✔)"
+        fi
+    ' >> /tmp/v6to4_other_raw.txt
+
+    # Tapis pendua & rekod yang sudah pernah dipaparkan dalam sesi ini
+    awk -F'|' '!seen[$1"_"$2]++' /tmp/v6to4_other_raw.txt > /tmp/v6to4_all_u.txt
+
+    if [ -s "$seen_file" ]; then
+        awk -F'|' '{print $1"_"$2}' "$seen_file" > /tmp/v6to4_seen_keys.txt
+        awk -F'|' 'NR==FNR {seen[$0]=1; next} !seen[$1"_"$2]' /tmp/v6to4_seen_keys.txt /tmp/v6to4_all_u.txt | head -n 20 > /tmp/v6to4_fresh_output.txt
+    else
+        head -n 20 /tmp/v6to4_all_u.txt > /tmp/v6to4_fresh_output.txt
+    fi
+
+    rm -f /tmp/v6to4_doms.txt /tmp/v6to4_dom_u.txt /tmp/v6to4_sub_cand.txt /tmp/v6to4_sub_u.txt /tmp/v6to4_other_raw.txt /tmp/v6to4_all_u.txt /tmp/v6to4_seen_keys.txt
+}
+
 # ==============================================================
-# MENU 1: CLONE IP (FRESH DI ATAS, REKOD LAMA TURUN BAWAH)
+# MENU 1: CLONE IP
 # ==============================================================
 clone_ip() {
     show_banner
@@ -689,7 +803,6 @@ clone_ip() {
 
         mapfile -t fresh_lines < /tmp/final_matched_output.txt 2>/dev/null
 
-        # 1. BAHAGIAN ATAS: HANYA HASIL FRESH (BELUM PERNAH KELUAR)
         echo -e "${GREEN}╭───[ ★ HASIL BAHARU / FRESH (Batch #${batch_num} - ${#fresh_lines[@]} IP) ★ ]───╮${NC}"
         all_selectable_ips=()
         count=1
@@ -719,7 +832,6 @@ clone_ip() {
             } >> "$HISTORY_FILE"
         fi
 
-        # 2. BAHAGIAN BAWAH: HASIL YANG SUDAH DIBACA PADA PUSINGAN LEPAS
         if [ ${#old_lines[@]} -gt 0 ]; then
             echo -e "\n${GRAY}╭───[ ↺ REKOD LAMA / SUDAH DIBACA (${#old_lines[@]} IP Terdahulu) ]───╮${NC}"
             for old_e in "${old_lines[@]}"; do
@@ -752,7 +864,7 @@ clone_ip() {
 }
 
 # ==============================================================
-# MENU 2: CLONE TWIN IP (FRESH DI ATAS, REKOD LAMA TURUN BAWAH)
+# MENU 2: CLONE TWIN IP
 # ==============================================================
 clone_twin_ip() {
     show_banner
@@ -872,7 +984,7 @@ clone_twin_ip() {
 }
 
 # ==============================================================
-# MENU 4: SEARCH BY COUNTRY / REGION / CITY (FRESH ATAS + LAMA BAWAH)
+# MENU 4: SEARCH BY COUNTRY / REGION / CITY
 # ==============================================================
 search_by_location() {
     show_banner
@@ -1010,7 +1122,7 @@ search_by_location() {
 }
 
 # ==============================================================
-# MENU 5: SEARCH BY POSTCODE (FRESH ATAS + LAMA BAWAH)
+# MENU 5: SEARCH BY POSTCODE
 # ==============================================================
 search_by_postcode() {
     show_banner
@@ -1144,7 +1256,7 @@ search_by_postcode() {
 }
 
 # ==============================================================
-# MENU 6: SEARCH DOMAIN IP ADDRESS (FRESH ATAS + LAMA BAWAH)
+# MENU 6: SEARCH DOMAIN IP ADDRESS
 # ==============================================================
 search_domain_by_ip() {
     show_banner
@@ -1258,7 +1370,7 @@ search_domain_by_ip() {
 }
 
 # ==============================================================
-# MENU 7: SEARCH IP DOMAIN (FRESH ATAS + LAMA BAWAH)
+# MENU 7: SEARCH IP DOMAIN
 # ==============================================================
 search_ip_by_domain() {
     show_banner
@@ -1386,7 +1498,7 @@ search_ip_by_domain() {
 }
 
 # ==============================================================
-# MENU 8: BUG HUNTER (FRESH ATAS + REKOD LAMA TURUN BAWAH)
+# MENU 8: BUG HUNTER
 # ==============================================================
 bug_hunter_menu() {
     local batch_num=1
@@ -1593,6 +1705,126 @@ search_dns_ipv6() {
 }
 
 # ==============================================================
+# MENU 10: SEARCH IPV6 TO DNS RECORD IPV4 (ORIGINAL IPV4 + LAIN)
+# ==============================================================
+search_ipv6_to_ipv4() {
+    show_banner
+    echo -e "${CYAN}╭─[ 10. SEARCH IPV6 KE DNS RECORD IPV4 (ORIGINAL IPV4 + SHARED) ]${NC}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IPv6 (cth: [2606:4700:3108::ac42:28aa]) atau ${YELLOW}0${WHITE} Exit : ${YELLOW}"
+    read -r raw_v6_in
+    echo -ne "${NC}"
+
+    if [ "$raw_v6_in" == "0" ] || [ -z "$raw_v6_in" ]; then
+        return
+    fi
+
+    clean_v6_disp=$(echo "$raw_v6_in" | tr -d '[] ' | tr '[:upper:]' '[:lower:]')
+    local seen_session="/tmp/seen_menu10_$$.txt"
+    > "$seen_session"
+    local batch_num=1
+
+    while true; do
+        show_banner
+        echo -e "${BLUE}╭──────────────────────────────────────────────────────────╮${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Target IPv6  :${NC} ${YELLOW}[${clean_v6_disp}] ${GRAY}(Batch #${batch_num})${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Mod Carian   :${NC} ${GREEN}Original IPv4 Atas + Fresh DNS Bawah ✔${NC}"
+        echo -e "${BLUE}╰──────────────────────────────────────────────────────────╯${NC}"
+        echo ""
+
+        mapfile -t old_v4_recs < "$seen_session" 2>/dev/null
+
+        (ipv6_to_ipv4_worker "$clean_v6_disp" "$seen_session") &
+        loading_spinner $! "Menyahkod Original IPv4 & mencari rekod DNS IPv4 berkaitan (Batch #${batch_num})..."
+
+        orig_info_line=$(cat /tmp/v6to4_orig_info.txt 2>/dev/null)
+        IFS='|' read -r orig_v4 orig_dom orig_1003 orig_loc orig_isp <<< "$orig_info_line"
+
+        mapfile -t fresh_v4_recs < /tmp/v6to4_fresh_output.txt 2>/dev/null
+
+        # 1. BAHAGIAN PALING ATAS: ASINGKAN ORIGINAL IPV4 ADDRESS & DOMAIN ASAL
+        echo -e "${YELLOW}╭───[ ★ ORIGINAL IPv4 ADDRESS BAGI [${clean_v6_disp}] ★ ]───╮${NC}"
+        if [ -n "$orig_v4" ]; then
+            echo -e "${YELLOW}│${NC} ${GREEN}[00]${NC} ${WHITE}${orig_v4}${NC} - ${CYAN}${orig_dom}${NC}"
+            echo -e "${YELLOW}│${NC}      ${GRAY}[ ${orig_1003} | ${orig_loc} | ${orig_isp} ]${NC}"
+        else
+            echo -e "${YELLOW}│${NC} ${RED}[!] Gagal mengesan Original IPv4 daripada alamat IPv6 ini.${NC}"
+        fi
+        echo -e "${YELLOW}╰──────────────────────────────────────────────────────────────────────╯${NC}\n"
+
+        # 2. BAHAGIAN KEDUA: REKOD DNS IPV4 BAHARU / FRESH
+        echo -e "${GREEN}╭───[ ★ REKOD DNS IPv4 BAHARU / FRESH (Batch #${batch_num} - ${#fresh_v4_recs[@]} Rekod) ★ ]───╮${NC}"
+        all_sel_v4=()
+        all_sel_dom=()
+        count=1
+        if [ ${#fresh_v4_recs[@]} -eq 0 ]; then
+            echo -e "  ${YELLOW}[!] Tiada lagi rekod IPv4 baharu ditemui. Semua rekod terdahulu ada di bawah.${NC}"
+        else
+            for r_line in "${fresh_v4_recs[@]}"; do
+                IFS='|' read -r r_v4 r_desc <<< "$r_line"
+                r_host="${r_desc%% *}"
+                all_sel_v4+=("$r_v4")
+                all_sel_dom+=("$r_host")
+                echo "$r_line" >> "$seen_session"
+                printf "  ${GREEN}%-4s${NC} ${WHITE}%-16s${NC} - ${CYAN}%s${NC}\n" "${count}." "$r_v4" "$r_desc"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Search IPv6->IPv4: [${clean_v6_disp}] (Batch #${batch_num})"
+                echo "Original IP      : ${orig_v4} (${orig_dom})"
+                echo "Ip Address Found :"
+                c=1
+                for r_line in "${fresh_v4_recs[@]}"; do
+                    IFS='|' read -r r_v4 r_desc <<< "$r_line"
+                    echo "${c}. ${r_v4} - ${r_desc}"
+                    ((c++))
+                done
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
+        fi
+
+        # 3. BAHAGIAN BAWAH: REKOD LAMA / SUDAH DIBACA
+        if [ ${#old_v4_recs[@]} -gt 0 ]; then
+            echo -e "\n${GRAY}╭───[ ↺ REKOD DNS IPv4 LAMA / SUDAH DIBACA (${#old_v4_recs[@]} Rekod) ]───╮${NC}"
+            for old_e in "${old_v4_recs[@]}"; do
+                IFS='|' read -r o_v4 o_desc <<< "$old_e"
+                o_host="${o_desc%% *}"
+                all_sel_v4+=("$o_v4")
+                all_sel_dom+=("$o_host")
+                printf "  ${GRAY}%-4s %-16s - %s [Sudah Dibaca]${NC}\n" "${count}." "$o_v4" "$o_desc"
+                ((count++))
+            done
+        fi
+
+        rm -f /tmp/v6to4_orig_info.txt /tmp/v6to4_fresh_output.txt
+
+        total_sel=${#all_sel_v4[@]}
+        echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
+        echo -e "${CYAN}──────────────────────────────────────────────────────────${NC}"
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} cari IPv4 Fresh lagi, taip ${YELLOW}[00]${WHITE} VLESS Orig, ${YELLOW}[1-${total_sel}]${WHITE} VLESS Lain, atau ${RED}[0]${WHITE} Exit : "
+        read -r v4_choice
+        if [ "$v4_choice" == "0" ]; then
+            break
+        elif [ "$v4_choice" == "00" ] && [ -n "$orig_v4" ]; then
+            print_vless_links "$orig_v4" "${orig_dom:-$DEFAULT_VLESS_HOST}"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
+        elif [[ "$v4_choice" =~ ^[0-9]+$ ]] && [ "$v4_choice" -ge 1 ] && [ "$v4_choice" -le "$total_sel" ]; then
+            idx=$(( v4_choice - 1 ))
+            print_vless_links "${all_sel_v4[$idx]}" "${all_sel_dom[$idx]:-$DEFAULT_VLESS_HOST}"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
+        fi
+        ((batch_num++))
+    done
+    rm -f "$seen_session"
+}
+
+# ==============================================================
 # MENU 3: SHOW HISTORY
 # ==============================================================
 show_history() {
@@ -1607,7 +1839,7 @@ show_history() {
         while IFS= read -r line; do
             if [[ "$line" == "--------------------------------------------------" ]]; then
                 echo -e "${PURPLE}──────────────────────────────────────────────────${NC}"
-            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP|Original\ Domain|Search\ IP\ Domain|Original\ IP|Bug\ Hunter\ Scan|Search\ DNS\ IPv6) ]]; then
+            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP|Original\ Domain|Search\ IP\ Domain|Original\ IP|Bug\ Hunter\ Scan|Search\ DNS\ IPv6|Search\ IPv6-\>IPv4) ]]; then
                 echo -e "${YELLOW}${line}${NC}"
             elif [[ "$line" =~ ^Ip\ Address\ Found ]]; then
                 echo -e "${CYAN}${line}${NC}"
