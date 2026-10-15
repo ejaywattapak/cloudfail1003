@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - CORE ENGINE v7.0 (1003 + VLESS WS READY)
+# EJAYWATT CLOUDFAIL - CORE ENGINE v8.0 (REVERSE DNS + VLESS WS)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -46,11 +46,10 @@ cidr_to_random_ip() {
     fi
 }
 
-# Fungsi papar pautan VLESS penuh mengikut IP pilihan
 print_vless_links() {
     local bug_ip=$1
     local v_host="${2:-$DEFAULT_VLESS_HOST}"
-    echo -e "\n${CYAN}╭───[ PAUTAN VLESS UNTUK IP: ${YELLOW}${bug_ip}${CYAN} ]───╮${NC}"
+    echo -e "\n${CYAN}╭───[ PAUTAN VLESS UNTUK: ${YELLOW}${bug_ip}${CYAN} (Host: ${v_host}) ]───╮${NC}"
     echo -e "${WHITE}Link Ws TLS :${NC}"
     echo -e "${GREEN}vless://${DEFAULT_VLESS_UUID}@${bug_ip}:443?path=/vless&security=tls&encryption=none&host=${v_host}&type=ws&sni=${v_host}#${DEFAULT_VLESS_TAG}${NC}"
     echo -e "${PURPLE}══════════════════════════════════════════════════${NC}"
@@ -70,7 +69,6 @@ print_vless_links() {
     echo -e "${GREEN}vless://${DEFAULT_VLESS_UUID}@${bug_ip}:8080?path=/xhttp&encryption=none&host=${v_host}&type=xhttp#${DEFAULT_VLESS_TAG}${NC}\n"
 }
 
-# Senarai rasmi julat alternatif Cloudflare Anycast (Menyokong 1003 + VLESS WS)
 generate_cf_prefixes() {
     cat << 'PREFIXES'
 104.16.0.0/13
@@ -94,7 +92,6 @@ generate_cf_prefixes() {
 PREFIXES
 }
 
-# Pengesah serentak: Error 1003 + Sokongan VLESS WebSocket / HttpUpgrade
 verify_1003_and_vless_ws() {
     local input_file=$1
     local output_file=$2
@@ -103,10 +100,8 @@ verify_1003_and_vless_ws() {
     cat "$input_file" | xargs -P 55 -I {} bash -c '
         ip="{}"
         vhost="'"$v_host"'"
-        # 1. Semak respons Error 1003 (Direct IP access)
         resp=$(curl -s --connect-timeout 1.2 --max-time 2.0 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
         if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
-            # 2. Semak keserasian VLESS WebSocket / Reverse Proxy Cloudflare
             ws_hdr=$(curl -s -I --connect-timeout 1.2 --max-time 2.0 \
                 -H "Host: ${vhost}" \
                 -H "Connection: Upgrade" \
@@ -121,7 +116,6 @@ verify_1003_and_vless_ws() {
     ' > "$output_file"
 }
 
-# --- WORKER MENU 1: CLONE IP (JULAT SAMA + JULAT ALTERNATIF) ---
 search_error_1003_worker() {
     local target_ip=$1
     local country=$2
@@ -136,7 +130,6 @@ search_error_1003_worker() {
     > /tmp/verified_matches.txt
     > /tmp/final_matched_output.txt
 
-    # 1. Jana IP dalam JULAT YANG SAMA (/24 dan /16 sekitar IP sasaran)
     for _ in {1..30}; do
         echo "${o1}.${o2}.${o3}.$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
     done
@@ -144,7 +137,6 @@ search_error_1003_worker() {
         echo "${o1}.${o2}.$(( RANDOM % 256 )).$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
     done
 
-    # 2. Jana IP dalam JULAT ALTERNATIF Cloudflare
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
         for _ in {1..14}; do
@@ -154,7 +146,6 @@ search_error_1003_worker() {
 
     grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 280 > /tmp/unique_candidates.txt
 
-    # Sahkan Error 1003 + Sokongan VLESS WS
     verify_1003_and_vless_ws /tmp/unique_candidates.txt /tmp/live_1003_ips.txt "$DEFAULT_VLESS_HOST"
 
     mapfile -t valid_ips < <(head -n 180 /tmp/live_1003_ips.txt)
@@ -174,7 +165,6 @@ search_error_1003_worker() {
 
     jq -s 'add' /tmp/batch_1003_*.json > /tmp/batch_1003.json 2>/dev/null
 
-    # Susun ikut padanan lokasi & pastikan ada wakil Julat Sama + Julat Alternatif
     jq -r --arg c "$country" --arg ct "$city" --arg z "$zip" \
         '.[] | select(.status=="success" and .country==$c and .city==$ct and .zip==$z) | "\(.query)|\(.city)|\(.zip)|\(.isp)"' \
         /tmp/batch_1003.json 2>/dev/null >> /tmp/verified_matches.txt
@@ -190,14 +180,12 @@ search_error_1003_worker() {
     jq -r '.[] | select(.status=="success") | "\(.query)|\(.city)|\(.zip)|\(.isp)"' \
         /tmp/batch_1003.json 2>/dev/null >> /tmp/verified_matches.txt
 
-    # Ambil sehingga 8 IP daripada julat yang sama + 12 IP daripada julat alternatif (Jumlah 20 IP)
     grep "^${o1}\.${o2}\." /tmp/verified_matches.txt | awk -F'|' '!seen[$1]++' | head -n 8 > /tmp/same_range.txt
     grep -v "^${o1}\.${o2}\." /tmp/verified_matches.txt | awk -F'|' '!seen[$1]++' | head -n 15 > /tmp/alt_range.txt
 
     cat /tmp/same_range.txt /tmp/alt_range.txt /tmp/verified_matches.txt | awk -F'|' '!seen[$1]++' | head -n 20 > /tmp/final_matched_output.txt
 }
 
-# --- WORKER MENU 2: CLONE TWIN IP (JULAT SAMA + JULAT ALTERNATIF + VLESS WS) ---
 search_twin_1003_worker() {
     local target_ip=$1
     local country=$2
@@ -210,7 +198,6 @@ search_twin_1003_worker() {
     > /tmp/twin_live_pairs.txt
     > /tmp/twin_final_output.txt
 
-    # 1. Pasangan kembar dalam JULAT YANG SAMA (sekitar o1.o2 target)
     for _ in {1..25}; do
         b3=$(( RANDOM % 254 ))
         b4=$(( (RANDOM % 254) + 1 ))
@@ -218,7 +205,6 @@ search_twin_1003_worker() {
         echo "${o1}.${o2}.${b3}.${b4}|${o1}.${o2}.${twin_b3}.${b4}" >> /tmp/twin_candidates.txt
     done
 
-    # 2. Pasangan kembar dalam JULAT ALTERNATIF Cloudflare
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
         for _ in {1..12}; do
@@ -283,7 +269,44 @@ search_twin_1003_worker() {
     mv /tmp/twin_clean.txt /tmp/twin_final_output.txt
 }
 
-# --- MENU 1: CLONE IP (JULAT SAMA + ALTERNATIF + VLESS WS) ---
+# --- WORKER MENU 6: REVERSE IP / PASSIVE DNS DOMAIN SCANNER ---
+reverse_ip_domains_worker() {
+    local target_ip=$1
+    > /tmp/rev_domains_raw.txt
+    > /tmp/rev_domains_clean.txt
+
+    # 1. RapidDNS.io (Sangat lengkap untuk rekod A Cloudflare)
+    curl -s --max-time 10 -A "Mozilla/5.0" "https://rapiddns.io/sameip/${target_ip}?full=1" 2>/dev/null \
+        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
+
+    # 2. HackerTarget Reverse IP Lookup
+    curl -s --max-time 8 -A "Mozilla/5.0" "https://api.hackertarget.com/reverseiplookup/?q=${target_ip}" 2>/dev/null \
+        | grep -vE "API count|error|No DNS" \
+        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
+
+    # 3. AlienVault OTX Passive DNS (Merekod semua domain & subdomain yang pernah guna IP ini)
+    curl -s --max-time 10 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${target_ip}/passive_dns" 2>/dev/null \
+        | jq -r '.passive_dns[]?.hostname' 2>/dev/null \
+        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
+
+    # 4. Webscan.cc API
+    curl -s --max-time 8 -A "Mozilla/5.0" "https://api.webscan.cc/?action=query&ip=${target_ip}" 2>/dev/null \
+        | jq -r '.[]?.domain' 2>/dev/null \
+        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
+
+    # 5. PTR / Reverse DNS Rasmi
+    curl -s --max-time 5 "http://ip-api.com/json/${target_ip}?fields=reverse" 2>/dev/null \
+        | jq -r '.reverse' 2>/dev/null \
+        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
+
+    # Bersihkan domain sampah UI laman web (seperti rapiddns.io, google, dll)
+    tr '[:upper:]' '[:lower:]' < /tmp/rev_domains_raw.txt \
+        | grep -vE "^(rapiddns\.io|www\.rapiddns\.io|cloudflare\.com|w3\.org|google\.com|gstatic\.com|googleapis\.com|bootstrap|jquery|fontawesome|jsdelivr|cdnjs|html5shiv|respond\.min\.js|popper\.min\.js)$" \
+        | grep -vE "\.(png|jpg|jpeg|gif|svg|css|js|ico|woff|woff2|ttf)$" \
+        | awk '!seen[$0]++' > /tmp/rev_domains_clean.txt
+}
+
+# --- MENU 1: CLONE IP ---
 clone_ip() {
     show_banner
     echo -e "${CYAN}╭─[ 1. CLONE IP (SAME & ALT RANGE + VLESS WS READY) ]${NC}"
@@ -320,7 +343,6 @@ clone_ip() {
     region=$(jq -r '.regionName' /tmp/target_ip.json)
     city=$(jq -r '.city' /tmp/target_ip.json)
     zip=$(jq -r '.zip' /tmp/target_ip.json)
-    isp=$(jq -r '.isp' /tmp/target_ip.json)
     rm -f /tmp/target_ip.json
 
     local batch_num=1
@@ -393,7 +415,7 @@ clone_ip() {
     done
 }
 
-# --- MENU 2: CLONE TWIN IP (JULAT SAMA + ALTERNATIF + VLESS WS) ---
+# --- MENU 2: CLONE TWIN IP ---
 clone_twin_ip() {
     show_banner
     echo -e "${CYAN}╭─[ 2. CLONE TWIN IP (SAME & ALT RANGE + VLESS WS) ]${NC}"
@@ -495,7 +517,7 @@ clone_twin_ip() {
     done
 }
 
-# --- MENU 4: SEARCH BY COUNTRY / REGION / CITY (1003 + VLESS WS) ---
+# --- MENU 4: SEARCH BY COUNTRY / REGION / CITY ---
 search_by_location() {
     show_banner
     echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY (VLESS WS READY) ]${NC}"
@@ -606,7 +628,7 @@ search_by_location() {
     done
 }
 
-# --- MENU 5: SEARCH BY POSTCODE (1003 + VLESS WS) ---
+# --- MENU 5: SEARCH BY POSTCODE ---
 search_by_postcode() {
     show_banner
     echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE (VLESS WS READY) ]${NC}"
@@ -713,6 +735,91 @@ search_by_postcode() {
     done
 }
 
+# --- MENU 6: SEARCH DOMAIN IP ADDRESS (REVERSE IP / PASSIVE DNS LOOKUP) ---
+search_domain_by_ip() {
+    while true; do
+        show_banner
+        echo -e "${CYAN}╭─[ 6. SEARCH DOMAIN IP ADDRESS (REVERSE DNS LOOKUP) ]${NC}"
+        echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address (cth: 104.18.21.212) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
+        read -r target_ip
+        echo -ne "${NC}"
+
+        if [ "$target_ip" == "0" ] || [ -z "$target_ip" ]; then
+            return
+        fi
+
+        if [[ ! "$target_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo -e "\n${RED}[✘] Format IP Address tidak sah!${NC}"
+            sleep 1.5
+            continue
+        fi
+
+        echo ""
+        (curl -s "http://ip-api.com/json/${target_ip}?fields=status,country,countryCode,regionName,city,isp,as" > /tmp/dom_ip_info.json) &
+        loading_spinner $! "Mengambil maklumat rangkaian bagi $target_ip..."
+
+        country=$(jq -r '.country // "Unknown"' /tmp/dom_ip_info.json 2>/dev/null)
+        city=$(jq -r '.city // "Unknown"' /tmp/dom_ip_info.json 2>/dev/null)
+        isp=$(jq -r '.isp // "Unknown"' /tmp/dom_ip_info.json 2>/dev/null)
+        asn=$(jq -r '.as // "Unknown"' /tmp/dom_ip_info.json 2>/dev/null)
+        rm -f /tmp/dom_ip_info.json
+
+        echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip}${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Lokasi     :${NC} ${CYAN}${city}, ${country}${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}ISP / ASN  :${NC} ${CYAN}${isp} (${asn})${NC}"
+        echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
+        echo ""
+
+        (reverse_ip_domains_worker "$target_ip") &
+        loading_spinner $! "Mengorek semua pangkalan data DNS (RapidDNS, OTX, HackerTarget, Webscan)..."
+
+        mapfile -t all_domains < /tmp/rev_domains_clean.txt 2>/dev/null
+        total_dom=${#all_domains[@]}
+
+        if [ "$total_dom" -eq 0 ]; then
+            echo -e "${RED}[!] Tiada rekod domain awam ditemui untuk IP ${target_ip}.${NC}"
+        else
+            echo -e "${GREEN}[✔] Dijumpai keseluruhan ${YELLOW}${total_dom}${GREEN} Domain / Subdomain yang menggunakan IP ${YELLOW}${target_ip}${GREEN}:${NC}\n"
+
+            count=1
+            for dom in "${all_domains[@]}"; do
+                printf "${GREEN}%-4s${NC} ${WHITE}%-42s${NC} ${CYAN}[ DNS A -> %s ]${NC}\n" "${count}." "$dom" "$target_ip"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Search Domain IP : $target_ip (Total: $total_dom Domains)"
+                echo "Ip Address Found :"
+                c=1
+                for dom in "${all_domains[@]:0:50}"; do
+                    echo "${c}. ${dom} -> ${target_ip}"
+                    ((c++))
+                done
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
+        fi
+
+        rm -f /tmp/rev_domains_*.txt
+
+        echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
+        echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk semak IP lain, taip ${YELLOW}[Nombor Domain]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
+        read -r dom_choice
+        if [ "$dom_choice" == "0" ]; then
+            break
+        elif [[ "$dom_choice" =~ ^[0-9]+$ ]] && [ "$dom_choice" -ge 1 ] && [ "$dom_choice" -le "$total_dom" ]; then
+            sel_dom="${all_domains[$((dom_choice-1))]}"
+            print_vless_links "$target_ip" "$sel_dom"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk semak IP lain, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
+        fi
+    done
+}
+
 # --- MENU 3: SHOW HISTORY ---
 show_history() {
     show_banner
@@ -726,7 +833,7 @@ show_history() {
         while IFS= read -r line; do
             if [[ "$line" == "--------------------------------------------------" ]]; then
                 echo -e "${PURPLE}──────────────────────────────────────────────────${NC}"
-            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode) ]]; then
+            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP) ]]; then
                 echo -e "${YELLOW}${line}${NC}"
             elif [[ "$line" =~ ^Ip\ Address\ Found ]]; then
                 echo -e "${CYAN}${line}${NC}"
