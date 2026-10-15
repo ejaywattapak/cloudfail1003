@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU v9.0
+# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU v10.0 (BUG HUNTER)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -59,10 +59,11 @@ while true; do
     echo -e "${CYAN}│${NC}   ${YELLOW}[5]${NC} ${WHITE}Search Postcode${NC}  ${GRAY}(Cari ikut poskod)${NC}       ${CYAN}│${NC}"
     echo -e "${CYAN}│${NC}   ${YELLOW}[6]${NC} ${WHITE}Search Domain IP${NC} ${GRAY}(Input IP -> Cari Domain)${NC}${CYAN}│${NC}"
     echo -e "${CYAN}│${NC}   ${YELLOW}[7]${NC} ${WHITE}Search IP Domain${NC} ${GRAY}(Input Domain -> Cari IP)${NC}${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${RED}[8]${NC} ${WHITE}Exit${NC}             ${GRAY}(Keluar ke terminal)${NC}    ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[8]${NC} ${WHITE}Bug Hunter${NC}       ${GRAY}(Senarai IP Bug + Domain)${NC}${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${RED}[9]${NC} ${WHITE}Exit${NC}             ${GRAY}(Keluar ke terminal)${NC}    ${CYAN}│${NC}"
     echo -e "${CYAN}╰──────────────────────────────────────────────────╯${NC}"
     echo -e "${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}\n"
-    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1-8)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
+    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1-9)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
     read -r choice
     echo -ne "${NC}"
 
@@ -74,12 +75,13 @@ while true; do
         5) search_by_postcode ;;
         6) search_domain_by_ip ;;
         7) search_ip_by_domain ;;
-        8)
+        8) bug_hunter_menu ;;
+        9)
             echo -e "\n${GREEN}Terima kasih! Taip 'menu' untuk buka semula.${NC}\n"
             exit 0
             ;;
         *)
-            echo -e "\n${RED}[!] Pilihan tidak sah. Sila pilih 1 hingga 8.${NC}"
+            echo -e "\n${RED}[!] Pilihan tidak sah. Sila pilih 1 hingga 9.${NC}"
             sleep 1.2
             ;;
     esac
