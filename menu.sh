@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU v10.1
+# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU v11.0 (IPV6 + FRESH)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -60,10 +60,11 @@ while true; do
     echo -e "${CYAN}│${NC}   ${YELLOW}[6]${NC} ${WHITE}Search Domain IP${NC} ${GRAY}(Input IP -> Cari Domain)${NC}${CYAN}│${NC}"
     echo -e "${CYAN}│${NC}   ${YELLOW}[7]${NC} ${WHITE}Search IP Domain${NC} ${GRAY}(Input Domain -> Cari IP)${NC}${CYAN}│${NC}"
     echo -e "${CYAN}│${NC}   ${YELLOW}[8]${NC} ${WHITE}Bug Hunter${NC}       ${GRAY}(Senarai IP Bug + Domain)${NC}${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${RED}[9]${NC} ${WHITE}Exit${NC}             ${GRAY}(Keluar ke terminal)${NC}    ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[9]${NC} ${WHITE}Search DNS IPv6${NC}  ${GRAY}(Cari IPv6 [2606:4700..]${NC} ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${RED}[0]${NC} ${WHITE}Exit${NC}             ${GRAY}(Keluar ke terminal)${NC}    ${CYAN}│${NC}"
     echo -e "${CYAN}╰──────────────────────────────────────────────────╯${NC}"
     echo -e "${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}\n"
-    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1-9)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
+    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1-9 / 0=Exit)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
     read -r choice
     echo -ne "${NC}"
 
@@ -76,12 +77,13 @@ while true; do
         6) search_domain_by_ip ;;
         7) search_ip_by_domain ;;
         8) bug_hunter_menu ;;
-        9)
+        9) search_dns_ipv6 ;;
+        0)
             echo -e "\n${GREEN}Terima kasih! Taip 'menu' untuk buka semula.${NC}\n"
             exit 0
             ;;
         *)
-            echo -e "\n${RED}[!] Pilihan tidak sah. Sila pilih 1 hingga 9.${NC}"
+            echo -e "\n${RED}[!] Pilihan tidak sah. Sila pilih 1-9 atau 0 untuk keluar.${NC}"
             sleep 1.2
             ;;
     esac
