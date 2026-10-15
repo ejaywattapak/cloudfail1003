@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - CORE ENGINE v8.0 (REVERSE DNS + VLESS WS)
+# EJAYWATT CLOUDFAIL - CORE ENGINE v8.5 (ORIGINAL HOST + REV DNS)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -269,41 +269,99 @@ search_twin_1003_worker() {
     mv /tmp/twin_clean.txt /tmp/twin_final_output.txt
 }
 
-# --- WORKER MENU 6: REVERSE IP / PASSIVE DNS DOMAIN SCANNER ---
+# --- WORKER MENU 6: PENGESAN DOMAIN ORIGINAL + PASSIVE DNS ---
 reverse_ip_domains_worker() {
     local target_ip=$1
     > /tmp/rev_domains_raw.txt
     > /tmp/rev_domains_clean.txt
+    > /tmp/rev_original_host.txt
 
-    # 1. RapidDNS.io (Sangat lengkap untuk rekod A Cloudflare)
+    local orig_domain=""
+
+    # 1. Semakan Pangkalan Data Host Original Khusus (Telco / Speedtest / Popular CF Bug IPs)
+    case "$target_ip" in
+        104.18.21.212|104.18.20.212)
+            orig_domain="mcmc-my.metricelltestcloud.com"
+            ;;
+        104.17.147.22|104.17.148.22)
+            orig_domain="speedtest.net"
+            ;;
+        104.18.0.197|104.18.1.197)
+            orig_domain="www.ookla.com"
+            ;;
+        162.159.135.42|162.159.136.42)
+            orig_domain="discord.com"
+            ;;
+    esac
+
+    # 2. Jika tiada dalam jadual khusus, kesan melalui Sijil SSL (TLS Handshake Port 443)
+    if [ -z "$orig_domain" ] && command -v openssl >/dev/null 2>&1; then
+        ssl_cn=$(echo | timeout 2.5 openssl s_client -connect "${target_ip}:443" 2>/dev/null \
+            | openssl x509 -noout -subject -ext subjectAltName 2>/dev/null \
+            | grep -Eo 'DNS:[a-zA-Z0-9.*-]+' | sed 's/DNS://g; s/^\*\.//g' \
+            | grep -vE "cloudflare|sni\.cloudflaressl" | head -n 1)
+        if [ -n "$ssl_cn" ]; then
+            orig_domain="$ssl_cn"
+        fi
+    fi
+
+    # 3. Jika masih kosong, semak PTR / Reverse DNS rasmi IP tersebut
+    if [ -z "$orig_domain" ]; then
+        ptr_dom=$(curl -s --max-time 4 "http://ip-api.com/json/${target_ip}?fields=reverse" 2>/dev/null \
+            | jq -r '.reverse // empty' 2>/dev/null | grep -vE "cloudflare" | head -n 1)
+        if [ -n "$ptr_dom" ]; then
+            orig_domain="$ptr_dom"
+        fi
+    fi
+
+    # 4. Korek semua pangkalan data Passive DNS (AlienVault OTX, RapidDNS, HackerTarget, Webscan)
+    curl -s --max-time 10 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${target_ip}/passive_dns" > /tmp/otx_dns.json 2>/dev/null
+
+    # Cari domain rasmi/korporat pertama daripada rekod OTX jika orig_domain masih belum dijumpai
+    if [ -z "$orig_domain" ] && [ -s /tmp/otx_dns.json ]; then
+        orig_domain=$(jq -r '.passive_dns[]?.hostname' /tmp/otx_dns.json 2>/dev/null \
+            | tr '[:upper:]' '[:lower:]' \
+            | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' \
+            | grep -vE "\.(shop|xyz|top|club|online|site|fun|icu|cyou|cfd|sbs|buzz|tk|ml|ga|cf|gq|vpn|tunnel)$" \
+            | head -n 1)
+    fi
+
+    # Kumpul semua domain ke dalam senarai penuh
+    jq -r '.passive_dns[]?.hostname' /tmp/otx_dns.json 2>/dev/null \
+        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
+
     curl -s --max-time 10 -A "Mozilla/5.0" "https://rapiddns.io/sameip/${target_ip}?full=1" 2>/dev/null \
         | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
 
-    # 2. HackerTarget Reverse IP Lookup
     curl -s --max-time 8 -A "Mozilla/5.0" "https://api.hackertarget.com/reverseiplookup/?q=${target_ip}" 2>/dev/null \
         | grep -vE "API count|error|No DNS" \
         | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
 
-    # 3. AlienVault OTX Passive DNS (Merekod semua domain & subdomain yang pernah guna IP ini)
-    curl -s --max-time 10 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${target_ip}/passive_dns" 2>/dev/null \
-        | jq -r '.passive_dns[]?.hostname' 2>/dev/null \
-        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
-
-    # 4. Webscan.cc API
     curl -s --max-time 8 -A "Mozilla/5.0" "https://api.webscan.cc/?action=query&ip=${target_ip}" 2>/dev/null \
         | jq -r '.[]?.domain' 2>/dev/null \
         | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
 
-    # 5. PTR / Reverse DNS Rasmi
-    curl -s --max-time 5 "http://ip-api.com/json/${target_ip}?fields=reverse" 2>/dev/null \
-        | jq -r '.reverse' 2>/dev/null \
-        | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
-
-    # Bersihkan domain sampah UI laman web (seperti rapiddns.io, google, dll)
+    # Tapis domain sampah UI
     tr '[:upper:]' '[:lower:]' < /tmp/rev_domains_raw.txt \
         | grep -vE "^(rapiddns\.io|www\.rapiddns\.io|cloudflare\.com|w3\.org|google\.com|gstatic\.com|googleapis\.com|bootstrap|jquery|fontawesome|jsdelivr|cdnjs|html5shiv|respond\.min\.js|popper\.min\.js)$" \
         | grep -vE "\.(png|jpg|jpeg|gif|svg|css|js|ico|woff|woff2|ttf)$" \
-        | awk '!seen[$0]++' > /tmp/rev_domains_clean.txt
+        | awk '!seen[$0]++' > /tmp/rev_domains_all.txt
+
+    # Jika orig_domain masih kosong, ambil domain rasmi (bukan domain VPN) atau domain paling atas
+    if [ -z "$orig_domain" ] && [ -s /tmp/rev_domains_all.txt ]; then
+        orig_domain=$(grep -vE "\.(shop|xyz|top|club|online|site|fun|icu|cyou|cfd|sbs|buzz|my\.id|biz\.id)$" /tmp/rev_domains_all.txt | head -n 1)
+        [ -z "$orig_domain" ] && orig_domain=$(head -n 1 /tmp/rev_domains_all.txt)
+    fi
+
+    echo "$orig_domain" > /tmp/rev_original_host.txt
+
+    # Asingkan orig_domain daripada senarai domain pengguna lain supaya tidak berulang
+    if [ -n "$orig_domain" ]; then
+        grep -vxF "$orig_domain" /tmp/rev_domains_all.txt > /tmp/rev_domains_clean.txt
+    else
+        cp /tmp/rev_domains_all.txt /tmp/rev_domains_clean.txt
+    fi
+    rm -f /tmp/otx_dns.json /tmp/rev_domains_all.txt
 }
 
 # --- MENU 1: CLONE IP ---
@@ -735,11 +793,11 @@ search_by_postcode() {
     done
 }
 
-# --- MENU 6: SEARCH DOMAIN IP ADDRESS (REVERSE IP / PASSIVE DNS LOOKUP) ---
+# --- MENU 6: SEARCH DOMAIN IP ADDRESS (ORIGINAL HOST SEPARATED AT TOP) ---
 search_domain_by_ip() {
     while true; do
         show_banner
-        echo -e "${CYAN}╭─[ 6. SEARCH DOMAIN IP ADDRESS (REVERSE DNS LOOKUP) ]${NC}"
+        echo -e "${CYAN}╭─[ 6. SEARCH DOMAIN IP ADDRESS (ORIGINAL HOST + DNS LIST) ]${NC}"
         echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address (cth: 104.18.21.212) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
         read -r target_ip
         echo -ne "${NC}"
@@ -772,44 +830,60 @@ search_domain_by_ip() {
         echo ""
 
         (reverse_ip_domains_worker "$target_ip") &
-        loading_spinner $! "Mengorek semua pangkalan data DNS (RapidDNS, OTX, HackerTarget, Webscan)..."
+        loading_spinner $! "Mengesan Domain Original & semua pengguna DNS pada IP $target_ip..."
 
+        orig_host=$(cat /tmp/rev_original_host.txt 2>/dev/null | xargs)
         mapfile -t all_domains < /tmp/rev_domains_clean.txt 2>/dev/null
         total_dom=${#all_domains[@]}
 
-        if [ "$total_dom" -eq 0 ]; then
-            echo -e "${RED}[!] Tiada rekod domain awam ditemui untuk IP ${target_ip}.${NC}"
+        # 1. BAHAGIAN PALING ATAS: ASINGKAN DOMAIN ORIGINAL
+        echo -e "${YELLOW}╭───[ ★ ORIGINAL DOMAIN / HOST BAGI IP ${target_ip} ★ ]───╮${NC}"
+        if [ -n "$orig_host" ]; then
+            echo -e "${YELLOW}│${NC} ${GREEN}[00]${NC} ${WHITE}${orig_host}${NC} ${CYAN}[ ORIGINAL HOST ✔ ]${NC}"
         else
-            echo -e "${GREEN}[✔] Dijumpai keseluruhan ${YELLOW}${total_dom}${GREEN} Domain / Subdomain yang menggunakan IP ${YELLOW}${target_ip}${GREEN}:${NC}\n"
+            echo -e "${YELLOW}│${NC} ${GRAY}Tiada Original Host spesifik dikesan (Shared Anycast IP)${NC}"
+        fi
+        echo -e "${YELLOW}╰────────────────────────────────────────────────────────────╯${NC}\n"
 
+        # 2. SENARAI SEMUA DOMAIN LAIN YANG MENGGUNAKAN DNS A IP INI
+        if [ "$total_dom" -eq 0 ]; then
+            echo -e "${GRAY}[i] Tiada domain tambahan lain ditemui menumpang pada IP ${target_ip}.${NC}"
+        else
+            echo -e "${CYAN}╭───[ SENARAI PENGGUNA DNS LAIN PADA IP ${target_ip} (${total_dom} Domain) ]───╮${NC}"
             count=1
             for dom in "${all_domains[@]}"; do
-                printf "${GREEN}%-4s${NC} ${WHITE}%-42s${NC} ${CYAN}[ DNS A -> %s ]${NC}\n" "${count}." "$dom" "$target_ip"
+                printf "${GREEN}%-4s${NC} ${WHITE}%-40s${NC} ${CYAN}[ DNS A -> %s ]${NC}\n" "${count}." "$dom" "$target_ip"
                 ((count++))
             done
-
-            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
-            {
-                echo "$current_date"
-                echo "Search Domain IP : $target_ip (Total: $total_dom Domains)"
-                echo "Ip Address Found :"
-                c=1
-                for dom in "${all_domains[@]:0:50}"; do
-                    echo "${c}. ${dom} -> ${target_ip}"
-                    ((c++))
-                done
-                echo "--------------------------------------------------"
-            } >> "$HISTORY_FILE"
         fi
 
-        rm -f /tmp/rev_domains_*.txt
+        current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+        {
+            echo "$current_date"
+            echo "Search Domain IP : $target_ip"
+            echo "Original Domain  : ${orig_host:-N/A}"
+            echo "Ip Address Found :"
+            c=1
+            for dom in "${all_domains[@]:0:50}"; do
+                echo "${c}. ${dom} -> ${target_ip}"
+                ((c++))
+            done
+            echo "--------------------------------------------------"
+        } >> "$HISTORY_FILE"
+
+        rm -f /tmp/rev_domains_*.txt /tmp/rev_original_host.txt
 
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk semak IP lain, taip ${YELLOW}[Nombor Domain]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} semak IP lain, taip ${YELLOW}[00]${WHITE} VLESS Original Host, ${YELLOW}[1-${total_dom}]${WHITE} VLESS Domain, atau ${RED}[0]${WHITE} Exit : "
         read -r dom_choice
         if [ "$dom_choice" == "0" ]; then
             break
+        elif [ "$dom_choice" == "00" ] && [ -n "$orig_host" ]; then
+            print_vless_links "$target_ip" "$orig_host"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk semak IP lain, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
         elif [[ "$dom_choice" =~ ^[0-9]+$ ]] && [ "$dom_choice" -ge 1 ] && [ "$dom_choice" -le "$total_dom" ]; then
             sel_dom="${all_domains[$((dom_choice-1))]}"
             print_vless_links "$target_ip" "$sel_dom"
@@ -833,7 +907,7 @@ show_history() {
         while IFS= read -r line; do
             if [[ "$line" == "--------------------------------------------------" ]]; then
                 echo -e "${PURPLE}──────────────────────────────────────────────────${NC}"
-            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP) ]]; then
+            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP|Original\ Domain) ]]; then
                 echo -e "${YELLOW}${line}${NC}"
             elif [[ "$line" =~ ^Ip\ Address\ Found ]]; then
                 echo -e "${CYAN}${line}${NC}"
