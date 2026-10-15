@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU v11.0 (IPV6 + FRESH)
+# EJAYWATT CLOUDFAIL - MAIN INTERACTIVE MENU v12.0 (IPV6 TO IPV4)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -52,19 +52,20 @@ while true; do
     echo -e "${CYAN}╭──────────────────────────────────────────────────╮${NC}"
     echo -e "${CYAN}│${NC}                    ${WHITE}MAIN MENU${NC}                     ${CYAN}│${NC}"
     echo -e "${CYAN}├──────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Clone IP${NC}         ${GRAY}(Cari ikut IP target)${NC}   ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Clone Twin IP${NC}    ${GRAY}(Cari sepasang IP kembar)${NC}${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[3]${NC} ${WHITE}Show History${NC}     ${GRAY}(Papar rekod lepas)${NC}     ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[4]${NC} ${WHITE}Search Country${NC}   ${GRAY}(Cari ikut negara/bandar)${NC}${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[5]${NC} ${WHITE}Search Postcode${NC}  ${GRAY}(Cari ikut poskod)${NC}       ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[6]${NC} ${WHITE}Search Domain IP${NC} ${GRAY}(Input IP -> Cari Domain)${NC}${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[7]${NC} ${WHITE}Search IP Domain${NC} ${GRAY}(Input Domain -> Cari IP)${NC}${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[8]${NC} ${WHITE}Bug Hunter${NC}       ${GRAY}(Senarai IP Bug + Domain)${NC}${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[9]${NC} ${WHITE}Search DNS IPv6${NC}  ${GRAY}(Cari IPv6 [2606:4700..]${NC} ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${RED}[0]${NC} ${WHITE}Exit${NC}             ${GRAY}(Keluar ke terminal)${NC}    ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC}  ${WHITE}Clone IP${NC}         ${GRAY}(Cari ikut IP target)${NC}  ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC}  ${WHITE}Clone Twin IP${NC}    ${GRAY}(Cari sepasang kembar)${NC} ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[3]${NC}  ${WHITE}Show History${NC}     ${GRAY}(Papar rekod lepas)${NC}    ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[4]${NC}  ${WHITE}Search Country${NC}   ${GRAY}(Cari ikut negara)${NC}     ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[5]${NC}  ${WHITE}Search Postcode${NC}  ${GRAY}(Cari ikut poskod)${NC}     ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[6]${NC}  ${WHITE}Search Domain IP${NC} ${GRAY}(Input IP -> Domain)${NC}   ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[7]${NC}  ${WHITE}Search IP Domain${NC} ${GRAY}(Input Domain -> IP)${NC}   ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[8]${NC}  ${WHITE}Bug Hunter${NC}       ${GRAY}(Senarai Bug + Domain)${NC} ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[9]${NC}  ${WHITE}Search DNS IPv6${NC}  ${GRAY}(IPv4/Dom -> IPv6)${NC}     ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[10]${NC} ${WHITE}Search IPv6->v4${NC}  ${GRAY}(IPv6 -> DNS Rec IPv4)${NC} ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${RED}[0]${NC}  ${WHITE}Exit${NC}             ${GRAY}(Keluar ke terminal)${NC}   ${CYAN}│${NC}"
     echo -e "${CYAN}╰──────────────────────────────────────────────────╯${NC}"
     echo -e "${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}\n"
-    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1-9 / 0=Exit)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
+    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1-10 / 0=Exit)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
     read -r choice
     echo -ne "${NC}"
 
@@ -78,12 +79,13 @@ while true; do
         7) search_ip_by_domain ;;
         8) bug_hunter_menu ;;
         9) search_dns_ipv6 ;;
+        10) search_ipv6_to_ipv4 ;;
         0)
             echo -e "\n${GREEN}Terima kasih! Taip 'menu' untuk buka semula.${NC}\n"
             exit 0
             ;;
         *)
-            echo -e "\n${RED}[!] Pilihan tidak sah. Sila pilih 1-9 atau 0 untuk keluar.${NC}"
+            echo -e "\n${RED}[!] Pilihan tidak sah. Sila pilih 1-10 atau 0 untuk keluar.${NC}"
             sleep 1.2
             ;;
     esac
