@@ -1,10 +1,13 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - CORE ENGINE v6.0 (TWIN IP + ANTI-PREFIX)
+# EJAYWATT CLOUDFAIL - CORE ENGINE v7.0 (1003 + VLESS WS READY)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
 HISTORY_FILE="$HOME/.ip_cloner_history.log"
+DEFAULT_VLESS_HOST="sgs.ejwtpkvpn.my"
+DEFAULT_VLESS_UUID="9bdf39ed-0160-4d36-91d9-88737a9eabc0"
+DEFAULT_VLESS_TAG="random_2026-10-18"
 
 loading_spinner() {
     local pid=$1
@@ -43,65 +46,116 @@ cidr_to_random_ip() {
     fi
 }
 
-# --- WORKER MENU 1: CLONE SINGLE IP (ELAK PREFIX SAMA) ---
+# Fungsi papar pautan VLESS penuh mengikut IP pilihan
+print_vless_links() {
+    local bug_ip=$1
+    local v_host="${2:-$DEFAULT_VLESS_HOST}"
+    echo -e "\n${CYAN}╭───[ PAUTAN VLESS UNTUK IP: ${YELLOW}${bug_ip}${CYAN} ]───╮${NC}"
+    echo -e "${WHITE}Link Ws TLS :${NC}"
+    echo -e "${GREEN}vless://${DEFAULT_VLESS_UUID}@${bug_ip}:443?path=/vless&security=tls&encryption=none&host=${v_host}&type=ws&sni=${v_host}#${DEFAULT_VLESS_TAG}${NC}"
+    echo -e "${PURPLE}══════════════════════════════════════════════════${NC}"
+    echo -e "${WHITE}Link Ws None TLS (Multipath) :${NC}"
+    echo -e "${GREEN}vless://${DEFAULT_VLESS_UUID}@${bug_ip}:80?path=/&encryption=none&host=${v_host}&type=ws#${DEFAULT_VLESS_TAG}${NC}"
+    echo -e "${PURPLE}══════════════════════════════════════════════════${NC}"
+    echo -e "${WHITE}Link HttpUpgrade TLS :${NC}"
+    echo -e "${GREEN}vless://${DEFAULT_VLESS_UUID}@${bug_ip}:443?path=/httpupgrade&security=tls&encryption=none&host=${v_host}&type=httpupgrade&sni=${v_host}#${DEFAULT_VLESS_TAG}${NC}"
+    echo -e "${PURPLE}══════════════════════════════════════════════════${NC}"
+    echo -e "${WHITE}Link HttpUpgrade None TLS :${NC}"
+    echo -e "${GREEN}vless://${DEFAULT_VLESS_UUID}@${bug_ip}:80?path=/httpupgrade&encryption=none&host=${v_host}&type=httpupgrade#${DEFAULT_VLESS_TAG}${NC}"
+    echo -e "${PURPLE}══════════════════════════════════════════════════${NC}"
+    echo -e "${WHITE}Link Xhttp TLS :${NC}"
+    echo -e "${GREEN}vless://${DEFAULT_VLESS_UUID}@${bug_ip}:8443?path=/xhttp&security=tls&encryption=none&host=${v_host}&type=xhttp&sni=${v_host}&alpn=h2#${DEFAULT_VLESS_TAG}${NC}"
+    echo -e "${PURPLE}══════════════════════════════════════════════════${NC}"
+    echo -e "${WHITE}Link Xhttp None TLS :${NC}"
+    echo -e "${GREEN}vless://${DEFAULT_VLESS_UUID}@${bug_ip}:8080?path=/xhttp&encryption=none&host=${v_host}&type=xhttp#${DEFAULT_VLESS_TAG}${NC}\n"
+}
+
+# Senarai rasmi julat alternatif Cloudflare Anycast (Menyokong 1003 + VLESS WS)
+generate_cf_prefixes() {
+    cat << 'PREFIXES'
+104.16.0.0/13
+104.24.0.0/14
+172.64.0.0/13
+172.68.0.0/14
+172.70.0.0/15
+172.71.0.0/16
+162.158.0.0/15
+108.162.192.0/18
+141.101.64.0/18
+173.245.48.0/20
+188.114.96.0/20
+190.93.240.0/20
+198.41.128.0/17
+103.21.244.0/22
+103.22.200.0/22
+103.31.4.0/22
+131.0.72.0/22
+197.234.240.0/22
+PREFIXES
+}
+
+# Pengesah serentak: Error 1003 + Sokongan VLESS WebSocket / HttpUpgrade
+verify_1003_and_vless_ws() {
+    local input_file=$1
+    local output_file=$2
+    local v_host="${3:-$DEFAULT_VLESS_HOST}"
+
+    cat "$input_file" | xargs -P 55 -I {} bash -c '
+        ip="{}"
+        vhost="'"$v_host"'"
+        # 1. Semak respons Error 1003 (Direct IP access)
+        resp=$(curl -s --connect-timeout 1.2 --max-time 2.0 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
+        if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
+            # 2. Semak keserasian VLESS WebSocket / Reverse Proxy Cloudflare
+            ws_hdr=$(curl -s -I --connect-timeout 1.2 --max-time 2.0 \
+                -H "Host: ${vhost}" \
+                -H "Connection: Upgrade" \
+                -H "Upgrade: websocket" \
+                -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+                -H "Sec-WebSocket-Version: 13" \
+                "http://${ip}:80/vless" 2>/dev/null)
+            if echo "$ws_hdr" | grep -Eqi "101 Switching Protocols|cloudflare|cf-ray|HTTP/1.1 [12345][0-9][0-9]"; then
+                echo "$ip"
+            fi
+        fi
+    ' > "$output_file"
+}
+
+# --- WORKER MENU 1: CLONE IP (JULAT SAMA + JULAT ALTERNATIF) ---
 search_error_1003_worker() {
     local target_ip=$1
     local country=$2
     local region=$3
     local city=$4
     local zip=$5
-    local isp=$6
-    local asn_raw=$7
 
     IFS='.' read -r o1 o2 o3 o4 <<< "$target_ip"
-    local target_prefix="${o1}.${o2}."
 
-    > /tmp/candidate_prefixes.txt
     > /tmp/candidate_ips.txt
     > /tmp/live_1003_ips.txt
     > /tmp/verified_matches.txt
     > /tmp/final_matched_output.txt
 
-    cat << 'PREFIXES' > /tmp/candidate_prefixes.txt
-103.21.244.0/22
-103.22.200.0/22
-103.31.4.0/22
-108.162.192.0/18
-131.0.72.0/22
-141.101.64.0/18
-162.158.0.0/15
-172.64.0.0/13
-172.68.0.0/14
-172.70.0.0/15
-172.71.0.0/16
-173.245.48.0/20
-188.114.96.0/20
-190.93.240.0/20
-197.234.240.0/22
-198.41.128.0/17
-104.16.0.0/13
-104.24.0.0/14
-PREFIXES
+    # 1. Jana IP dalam JULAT YANG SAMA (/24 dan /16 sekitar IP sasaran)
+    for _ in {1..30}; do
+        echo "${o1}.${o2}.${o3}.$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
+    done
+    for _ in {1..45}; do
+        echo "${o1}.${o2}.$(( RANDOM % 256 )).$(( (RANDOM % 254) + 1 ))" >> /tmp/candidate_ips.txt
+    done
 
+    # 2. Jana IP dalam JULAT ALTERNATIF Cloudflare
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
-        if [[ "$prefix" == "${target_prefix}"* ]]; then
-            continue
-        fi
-        for _ in {1..18}; do
+        for _ in {1..14}; do
             cidr_to_random_ip "$prefix" >> /tmp/candidate_ips.txt
         done
-    done < /tmp/candidate_prefixes.txt
+    done < <(generate_cf_prefixes)
 
-    grep -v "^${o1}\.${o2}\." /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 260 > /tmp/unique_candidates.txt
+    grep -v "^${target_ip}$" /tmp/candidate_ips.txt | awk '!seen[$0]++' | shuf -n 280 > /tmp/unique_candidates.txt
 
-    cat /tmp/unique_candidates.txt | xargs -P 50 -I {} bash -c '
-        ip="{}"
-        resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
-        if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
-            echo "$ip"
-        fi
-    ' > /tmp/live_1003_ips.txt
+    # Sahkan Error 1003 + Sokongan VLESS WS
+    verify_1003_and_vless_ws /tmp/unique_candidates.txt /tmp/live_1003_ips.txt "$DEFAULT_VLESS_HOST"
 
     mapfile -t valid_ips < <(head -n 180 /tmp/live_1003_ips.txt)
     [ ${#valid_ips[@]} -eq 0 ] && return
@@ -120,6 +174,7 @@ PREFIXES
 
     jq -s 'add' /tmp/batch_1003_*.json > /tmp/batch_1003.json 2>/dev/null
 
+    # Susun ikut padanan lokasi & pastikan ada wakil Julat Sama + Julat Alternatif
     jq -r --arg c "$country" --arg ct "$city" --arg z "$zip" \
         '.[] | select(.status=="success" and .country==$c and .city==$ct and .zip==$z) | "\(.query)|\(.city)|\(.zip)|\(.isp)"' \
         /tmp/batch_1003.json 2>/dev/null >> /tmp/verified_matches.txt
@@ -135,10 +190,14 @@ PREFIXES
     jq -r '.[] | select(.status=="success") | "\(.query)|\(.city)|\(.zip)|\(.isp)"' \
         /tmp/batch_1003.json 2>/dev/null >> /tmp/verified_matches.txt
 
-    awk -F'|' '!seen[$1]++' /tmp/verified_matches.txt | head -n 20 > /tmp/final_matched_output.txt
+    # Ambil sehingga 8 IP daripada julat yang sama + 12 IP daripada julat alternatif (Jumlah 20 IP)
+    grep "^${o1}\.${o2}\." /tmp/verified_matches.txt | awk -F'|' '!seen[$1]++' | head -n 8 > /tmp/same_range.txt
+    grep -v "^${o1}\.${o2}\." /tmp/verified_matches.txt | awk -F'|' '!seen[$1]++' | head -n 15 > /tmp/alt_range.txt
+
+    cat /tmp/same_range.txt /tmp/alt_range.txt /tmp/verified_matches.txt | awk -F'|' '!seen[$1]++' | head -n 20 > /tmp/final_matched_output.txt
 }
 
-# --- WORKER MENU 2: CLONE TWIN IP (PASANGAN KEMBAR + ELAK PREFIX SAMA) ---
+# --- WORKER MENU 2: CLONE TWIN IP (JULAT SAMA + JULAT ALTERNATIF + VLESS WS) ---
 search_twin_1003_worker() {
     local target_ip=$1
     local country=$2
@@ -151,57 +210,49 @@ search_twin_1003_worker() {
     > /tmp/twin_live_pairs.txt
     > /tmp/twin_final_output.txt
 
-    cat << 'PREFIXES' > /tmp/twin_prefixes.txt
-108.162.192.0/18
-141.101.64.0/18
-162.158.0.0/15
-172.64.0.0/13
-172.68.0.0/14
-172.70.0.0/15
-172.71.0.0/16
-173.245.48.0/20
-188.114.96.0/20
-190.93.240.0/20
-198.41.128.0/17
-104.16.0.0/13
-104.24.0.0/14
-PREFIXES
+    # 1. Pasangan kembar dalam JULAT YANG SAMA (sekitar o1.o2 target)
+    for _ in {1..25}; do
+        b3=$(( RANDOM % 254 ))
+        b4=$(( (RANDOM % 254) + 1 ))
+        twin_b3=$(( b3 + 1 ))
+        echo "${o1}.${o2}.${b3}.${b4}|${o1}.${o2}.${twin_b3}.${b4}" >> /tmp/twin_candidates.txt
+    done
 
+    # 2. Pasangan kembar dalam JULAT ALTERNATIF Cloudflare
     while IFS= read -r prefix; do
         [ -z "$prefix" ] && continue
-        for _ in {1..14}; do
+        for _ in {1..12}; do
             base_ip=$(cidr_to_random_ip "$prefix")
             IFS='.' read -r b1 b2 b3 b4 <<< "$base_ip"
-            if [ "$b1" == "$o1" ] && [ "$b2" == "$o2" ]; then
-                continue
-            fi
             if [ "$b3" -gt 0 ]; then
                 twin_b3=$(( b3 - 1 ))
             else
                 twin_b3=$(( b3 + 1 ))
             fi
-            ip1="${b1}.${b2}.${b3}.${b4}"
-            ip2="${b1}.${b2}.${twin_b3}.${b4}"
-            echo "${ip1}|${ip2}" >> /tmp/twin_candidates.txt
+            echo "${b1}.${b2}.${b3}.${b4}|${b1}.${b2}.${twin_b3}.${b4}" >> /tmp/twin_candidates.txt
         done
-    done < /tmp/twin_prefixes.txt
+    done < <(generate_cf_prefixes)
 
-    awk '!seen[$0]++' /tmp/twin_candidates.txt | shuf -n 90 > /tmp/twin_unique.txt
+    awk '!seen[$0]++' /tmp/twin_candidates.txt | shuf -n 95 > /tmp/twin_unique.txt
 
     cat /tmp/twin_unique.txt | xargs -P 45 -I {} bash -c '
         pair="{}"
         ip1="${pair%|*}"
         ip2="${pair#*|}"
-        r1=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip1}" 2>/dev/null)
+        vhost="'"$DEFAULT_VLESS_HOST"'"
+        r1=$(curl -s --connect-timeout 1.2 --max-time 2.0 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip1}" 2>/dev/null)
         if echo "$r1" | grep -Eqi "1003|Direct IP access not allowed"; then
-            r2=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip2}" 2>/dev/null)
+            r2=$(curl -s --connect-timeout 1.2 --max-time 2.0 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip2}" 2>/dev/null)
             if echo "$r2" | grep -Eqi "1003|Direct IP access not allowed"; then
-                echo "${ip1}|${ip2}"
+                ws=$(curl -s -I --connect-timeout 1.2 --max-time 2.0 -H "Host: ${vhost}" -H "Connection: Upgrade" -H "Upgrade: websocket" "http://${ip1}:80/vless" 2>/dev/null)
+                if echo "$ws" | grep -Eqi "101|cloudflare|cf-ray|HTTP/1.1"; then
+                    echo "${ip1}|${ip2}"
+                fi
             fi
         fi
     ' > /tmp/twin_live_pairs.txt
 
-    mapfile -t live_pairs < <(head -n 40 /tmp/twin_live_pairs.txt)
+    mapfile -t live_pairs < <(head -n 45 /tmp/twin_live_pairs.txt)
     [ ${#live_pairs[@]} -eq 0 ] && return
 
     first_ips=()
@@ -224,17 +275,18 @@ PREFIXES
         fi
     done
 
-    grep "|${country}|" /tmp/twin_verified.txt > /tmp/twin_final_output.txt 2>/dev/null
+    grep "^${o1}\.${o2}\." /tmp/twin_verified.txt | head -n 8 > /tmp/twin_final_output.txt 2>/dev/null
+    grep "|${country}|" /tmp/twin_verified.txt >> /tmp/twin_final_output.txt 2>/dev/null
     cat /tmp/twin_verified.txt >> /tmp/twin_final_output.txt 2>/dev/null
 
     awk -F'|' '!seen[$1]++' /tmp/twin_final_output.txt | head -n 20 > /tmp/twin_clean.txt
     mv /tmp/twin_clean.txt /tmp/twin_final_output.txt
 }
 
-# --- MENU 1: CLONE IP (20 IPs + ELAK PREFIX SAMA + AUTO REPEAT) ---
+# --- MENU 1: CLONE IP (JULAT SAMA + ALTERNATIF + VLESS WS) ---
 clone_ip() {
     show_banner
-    echo -e "${CYAN}╭─[ 1. CLONE IP ADDRESS (ERROR 1003 - 20 IPs) ]${NC}"
+    echo -e "${CYAN}╭─[ 1. CLONE IP (SAME & ALT RANGE + VLESS WS READY) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address Target (atau ${YELLOW}0${WHITE} untuk Exit) : ${YELLOW}"
     read -r target_ip
     echo -ne "${NC}"
@@ -269,7 +321,6 @@ clone_ip() {
     city=$(jq -r '.city' /tmp/target_ip.json)
     zip=$(jq -r '.zip' /tmp/target_ip.json)
     isp=$(jq -r '.isp' /tmp/target_ip.json)
-    asn=$(jq -r '.as' /tmp/target_ip.json)
     rm -f /tmp/target_ip.json
 
     local batch_num=1
@@ -277,36 +328,40 @@ clone_ip() {
         show_banner
         echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip} ${GRAY}(Batch #${batch_num})${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Filter     :${NC} ${GREEN}Auto-Skip kepala ${o1}.${o2}.x.x ✔${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Negara     :${NC} ${CYAN}${country} (${country_code})${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Bandar     :${NC} ${CYAN}${city} (${region})${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Postcode   :${NC} ${CYAN}${zip:-Tiada Data}${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Mode       :${NC} ${GREEN}Julat Sama (${o1}.${o2}.*) + Alternatif CF ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Protokol   :${NC} ${CYAN}Error 1003 + VLESS WS/HttpUpgrade/Xhttp ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Lokasi     :${NC} ${CYAN}${city}, ${region}, ${country} (${zip:-N/A})${NC}"
         echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
         echo ""
 
-        (search_error_1003_worker "$target_ip" "$country" "$region" "$city" "$zip" "$isp" "$asn") &
-        loading_spinner $! "Mengimbas 20 IP Error 1003 (selain ${o1}.${o2}.x.x)..."
+        (search_error_1003_worker "$target_ip" "$country" "$region" "$city" "$zip") &
+        loading_spinner $! "Mengimbas 20 IP (Julat Sama & Alternatif + VLESS WS Ready)..."
 
         mapfile -t matched_lines < /tmp/final_matched_output.txt 2>/dev/null
 
-        echo -e "${GREEN}[✔] Selesai! Senarai 20 IP Error 1003 untuk ${YELLOW}${target_ip}${GREEN}:${NC}\n"
+        echo -e "${GREEN}[✔] Selesai! 20 IP Error 1003 + VLESS WS Ready (${YELLOW}${target_ip}${GREEN}):${NC}\n"
 
+        found_ips=()
         if [ ${#matched_lines[@]} -eq 0 ]; then
             echo -e "${RED}Tiada IP aktif ditemui pada pusingan ini. Tekan Enter untuk cuba lagi.${NC}"
         else
             count=1
-            found_ips=()
             for entry in "${matched_lines[@]}"; do
                 IFS='|' read -r f_ip f_city f_zip f_isp <<< "$entry"
                 found_ips+=("$f_ip")
-                printf "${GREEN}%-3s %-16s [ Error 1003 ✔ | %s | Postcode: %s | %s ]${NC}\n" "${count}." "$f_ip" "$f_city" "${f_zip:-N/A}" "$f_isp"
+                if [[ "$f_ip" == "${o1}.${o2}."* ]]; then
+                    r_tag="SAME-RANGE"
+                else
+                    r_tag="ALT-RANGE "
+                fi
+                printf "${GREEN}%-3s %-16s [ %s | 1003+WS ✔ | %s | Zip:%s ]${NC}\n" "${count}." "$f_ip" "$r_tag" "$f_city" "${f_zip:-N/A}"
                 ((count++))
             done
 
             current_date=$(LC_TIME=C date +"%A %dth %B %Y")
             {
                 echo "$current_date"
-                echo "Ip Target : $target_ip (Clone IP - Batch #${batch_num})"
+                echo "Ip Target : $target_ip (Clone IP + VLESS WS - Batch #${batch_num})"
                 echo "Ip Address Found :"
                 c=1
                 for f_ip in "${found_ips[@]}"; do
@@ -319,23 +374,29 @@ clone_ip() {
 
         rm -f /tmp/candidate_*.txt /tmp/unique_candidates.txt \
               /tmp/live_1003_ips.txt /tmp/batch_1003*.json /tmp/verified_matches.txt \
-              /tmp/final_matched_output.txt
+              /tmp/same_range.txt /tmp/alt_range.txt /tmp/final_matched_output.txt
 
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi (${YELLOW}${target_ip}${WHITE}), atau taip ${RED}[0]${WHITE} untuk Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi, taip ${YELLOW}[1-20]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
+        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "${#found_ips[@]}" ]; then
+            sel_ip="${found_ips[$((choice_loop-1))]}"
+            print_vless_links "$sel_ip" "$DEFAULT_VLESS_HOST"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari 20 IP lagi, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
         fi
         ((batch_num++))
     done
 }
 
-# --- MENU 2: CLONE TWIN IP (PASANGAN IP KEMBAR + ELAK PREFIX SAMA) ---
+# --- MENU 2: CLONE TWIN IP (JULAT SAMA + ALTERNATIF + VLESS WS) ---
 clone_twin_ip() {
     show_banner
-    echo -e "${CYAN}╭─[ 2. CLONE TWIN IP (PASANGAN IP KEMBAR ERROR 1003) ]${NC}"
+    echo -e "${CYAN}╭─[ 2. CLONE TWIN IP (SAME & ALT RANGE + VLESS WS) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan IP Address Target (atau ${YELLOW}0${WHITE} untuk Exit) : ${YELLOW}"
     read -r target_ip
     echo -ne "${NC}"
@@ -375,34 +436,35 @@ clone_twin_ip() {
         show_banner
         echo -e "${BLUE}╭──────────────────────────────────────────────────╮${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}IP Target  :${NC} ${YELLOW}${target_ip} ${GRAY}(Twin Mode - Batch #${batch_num})${NC}"
-        echo -e "${BLUE}│${NC} ${WHITE}Filter     :${NC} ${GREEN}Auto-Skip kepala ${o1}.${o2}.x.x ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Mode       :${NC} ${GREEN}Julat Sama (${o1}.${o2}.*) + Alternatif CF ✔${NC}"
+        echo -e "${BLUE}│${NC} ${WHITE}Protokol   :${NC} ${CYAN}Error 1003 + VLESS WS/HttpUpgrade/Xhttp ✔${NC}"
         echo -e "${BLUE}│${NC} ${WHITE}Lokasi     :${NC} ${CYAN}${city}, ${region}, ${country} (${country_code})${NC}"
         echo -e "${BLUE}╰──────────────────────────────────────────────────╯${NC}"
         echo ""
 
         (search_twin_1003_worker "$target_ip" "$country" "$city" "$zip") &
-        loading_spinner $! "Mencari 20 Pasangan Twin IP Error 1003 (selain ${o1}.${o2}.x.x)..."
+        loading_spinner $! "Mencari 20 Pasangan Twin IP (1003 + VLESS WS Ready)..."
 
         mapfile -t twin_lines < /tmp/twin_final_output.txt 2>/dev/null
 
-        echo -e "${GREEN}[✔] Selesai! Senarai Pasangan Twin IP Error 1003 untuk ${YELLOW}${target_ip}${GREEN}:${NC}\n"
+        echo -e "${GREEN}[✔] Selesai! Pasangan Twin IP Error 1003 + VLESS WS (${YELLOW}${target_ip}${GREEN}):${NC}\n"
 
+        found_twins=()
         if [ ${#twin_lines[@]} -eq 0 ]; then
             echo -e "${RED}Tiada pasangan Twin IP aktif ditemui pada pusingan ini. Tekan Enter untuk cuba lagi.${NC}"
         else
             count=1
-            found_twins=()
             for entry in "${twin_lines[@]}"; do
                 IFS='|' read -r t_pair t_cnt t_city t_zip t_isp <<< "$entry"
                 found_twins+=("$t_pair")
-                printf "${GREEN}%-3s %-35s [ 1003 ✔ | %s, %s | Zip: %s ]${NC}\n" "${count}." "$t_pair" "$t_city" "$t_cnt" "${t_zip:-N/A}"
+                printf "${GREEN}%-3s %-35s [ 1003+WS ✔ | %s, %s | Zip:%s ]${NC}\n" "${count}." "$t_pair" "$t_city" "$t_cnt" "${t_zip:-N/A}"
                 ((count++))
             done
 
             current_date=$(LC_TIME=C date +"%A %dth %B %Y")
             {
                 echo "$current_date"
-                echo "Ip Target : $target_ip (Twin IP Mode - Batch #${batch_num})"
+                echo "Ip Target : $target_ip (Twin IP + VLESS WS - Batch #${batch_num})"
                 echo "Ip Address Found :"
                 c=1
                 for t_p in "${found_twins[@]}"; do
@@ -417,20 +479,27 @@ clone_twin_ip() {
 
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk cari Twin IP lagi (${YELLOW}${target_ip}${WHITE}), atau taip ${RED}[0]${WHITE} untuk Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Twin IP lagi, taip ${YELLOW}[1-20]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
+        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "${#found_twins[@]}" ]; then
+            raw_pair="${found_twins[$((choice_loop-1))]}"
+            sel_ip="${raw_pair%% *}"
+            print_vless_links "$sel_ip" "$DEFAULT_VLESS_HOST"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari Twin IP lagi, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
         fi
         ((batch_num++))
     done
 }
 
-# --- MENU 4: SEARCH BY COUNTRY / REGION / CITY (20 IP + AUTO REPEAT) ---
+# --- MENU 4: SEARCH BY COUNTRY / REGION / CITY (1003 + VLESS WS) ---
 search_by_location() {
     show_banner
-    echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY (20 IPs) ]${NC}"
-    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Lokasi (cth: France, Tokyo, USA) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
+    echo -e "${CYAN}╭─[ 4. SEARCH BY COUNTRY / REGION / CITY (VLESS WS READY) ]${NC}"
+    echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Lokasi (cth: Singapore, Tokyo, USA) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
     read -r query_loc
     echo -ne "${NC}"
 
@@ -443,53 +512,26 @@ search_by_location() {
 
     while true; do
         show_banner
-        echo -e "${CYAN}╭─[ 4. SEARCH BY LOCATION : ${YELLOW}${clean_q}${CYAN} (Batch #${batch_num}) ]${NC}\n"
+        echo -e "${CYAN}╭─[ 4. SEARCH LOCATION : ${YELLOW}${clean_q}${CYAN} (1003 + VLESS WS | Batch #${batch_num}) ]${NC}\n"
 
         > /tmp/loc_candidate_ips.txt
         > /tmp/loc_live_1003.txt
-
-        cat << 'PREFIXES' > /tmp/loc_prefixes.txt
-103.21.244.0/22
-103.22.200.0/22
-103.31.4.0/22
-108.162.192.0/18
-131.0.72.0/22
-141.101.64.0/18
-162.158.0.0/15
-172.64.0.0/13
-172.68.0.0/14
-172.70.0.0/15
-172.71.0.0/16
-173.245.48.0/20
-188.114.96.0/20
-190.93.240.0/20
-197.234.240.0/22
-198.41.128.0/17
-104.16.0.0/13
-104.24.0.0/14
-PREFIXES
 
         while IFS= read -r prefix; do
             [ -z "$prefix" ] && continue
             for _ in {1..16}; do
                 cidr_to_random_ip "$prefix" >> /tmp/loc_candidate_ips.txt
             done
-        done < /tmp/loc_prefixes.txt
+        done < <(generate_cf_prefixes)
 
-        shuf -n 260 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
+        shuf -n 270 /tmp/loc_candidate_ips.txt > /tmp/loc_unique.txt
 
-        (
-            cat /tmp/loc_unique.txt | xargs -P 50 -I {} bash -c '
-                ip="{}"
-                resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
-                if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
-                    echo "$ip"
-                fi
-            ' > /tmp/loc_live_1003.txt
-        ) &
-        loading_spinner $! "Mengimbas 20 IP Error 1003 untuk lokasi '${clean_q}'..."
+        (verify_1003_and_vless_ws /tmp/loc_unique.txt /tmp/loc_live_1003.txt "$DEFAULT_VLESS_HOST") &
+        loading_spinner $! "Mengimbas 20 IP Error 1003 + VLESS WS untuk '${clean_q}'..."
 
         mapfile -t live_ips < <(head -n 180 /tmp/loc_live_1003.txt)
+        found_ips=()
+
         if [ ${#live_ips[@]} -eq 0 ]; then
             echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
         else
@@ -521,52 +563,53 @@ PREFIXES
             awk -F'|' '!seen[$1]++' /tmp/final_loc_matched.txt | head -n 20 > /tmp/final_loc_clean.txt
             mapfile -t matched_locs < /tmp/final_loc_clean.txt
 
-            echo -e "${GREEN}[✔] Carian Selesai! 20 IP Error 1003 untuk '${YELLOW}${clean_q}${GREEN}':${NC}\n"
+            echo -e "${GREEN}[✔] Selesai! 20 IP Error 1003 + VLESS WS untuk '${YELLOW}${clean_q}${GREEN}':${NC}\n"
 
-            if [ ${#matched_locs[@]} -eq 0 ]; then
-                echo -e "${RED}Tiada IP sepadan dijumpai untuk '${clean_q}'.${NC}"
-            else
-                count=1
-                found_ips=()
-                for entry in "${matched_locs[@]}"; do
-                    IFS='|' read -r f_ip f_city f_reg f_cnt f_zip f_isp <<< "$entry"
-                    found_ips+=("$f_ip")
-                    printf "${GREEN}%-3s %-16s [ Error 1003 ✔ | %s, %s, %s | Postcode: %s | %s ]${NC}\n" "${count}." "$f_ip" "$f_city" "$f_reg" "$f_cnt" "${f_zip:-N/A}" "$f_isp"
-                    ((count++))
+            count=1
+            for entry in "${matched_locs[@]}"; do
+                IFS='|' read -r f_ip f_city f_reg f_cnt f_zip f_isp <<< "$entry"
+                found_ips+=("$f_ip")
+                printf "${GREEN}%-3s %-16s [ 1003+WS ✔ | %s, %s, %s | Zip:%s ]${NC}\n" "${count}." "$f_ip" "$f_city" "$f_reg" "$f_cnt" "${f_zip:-N/A}"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Search Location : $clean_q (VLESS WS - Batch #${batch_num})"
+                echo "Ip Address Found :"
+                c=1
+                for f_ip in "${found_ips[@]}"; do
+                    echo "${c}. ${f_ip}"
+                    ((c++))
                 done
-
-                current_date=$(LC_TIME=C date +"%A %dth %B %Y")
-                {
-                    echo "$current_date"
-                    echo "Search Location : $clean_q (Batch #${batch_num})"
-                    echo "Ip Address Found :"
-                    c=1
-                    for f_ip in "${found_ips[@]}"; do
-                        echo "${c}. ${f_ip}"
-                        ((c++))
-                    done
-                    echo "--------------------------------------------------"
-                } >> "$HISTORY_FILE"
-            fi
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
         fi
 
         rm -f /tmp/loc_*.txt /tmp/batch_loc_*.json /tmp/all_batch_loc.json /tmp/final_loc_*.txt
 
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi (${YELLOW}${clean_q}${WHITE}), atau taip ${RED}[0]${WHITE} untuk Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi, taip ${YELLOW}[1-20]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
+        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "${#found_ips[@]}" ]; then
+            sel_ip="${found_ips[$((choice_loop-1))]}"
+            print_vless_links "$sel_ip" "$DEFAULT_VLESS_HOST"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari 20 IP lagi, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
         fi
         ((batch_num++))
     done
 }
 
-# --- MENU 5: SEARCH BY POSTCODE (20 IP + AUTO REPEAT) ---
+# --- MENU 5: SEARCH BY POSTCODE (1003 + VLESS WS) ---
 search_by_postcode() {
     show_banner
-    echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE (20 IPs) ]${NC}"
+    echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE (VLESS WS READY) ]${NC}"
     echo -ne "${CYAN}╰─➤${NC} ${WHITE}Masukkan Postcode / Zipcode (cth: 75001, M5V) atau ${YELLOW}0${WHITE} untuk Exit : ${YELLOW}"
     read -r query_zip
     echo -ne "${NC}"
@@ -580,53 +623,26 @@ search_by_postcode() {
 
     while true; do
         show_banner
-        echo -e "${CYAN}╭─[ 5. SEARCH BY POSTCODE : ${YELLOW}${clean_z}${CYAN} (Batch #${batch_num}) ]${NC}\n"
+        echo -e "${CYAN}╭─[ 5. SEARCH POSTCODE : ${YELLOW}${clean_z}${CYAN} (1003 + VLESS WS | Batch #${batch_num}) ]${NC}\n"
 
         > /tmp/zip_candidate_ips.txt
         > /tmp/zip_live_1003.txt
-
-        cat << 'PREFIXES' > /tmp/zip_prefixes.txt
-103.21.244.0/22
-103.22.200.0/22
-103.31.4.0/22
-108.162.192.0/18
-131.0.72.0/22
-141.101.64.0/18
-162.158.0.0/15
-172.64.0.0/13
-172.68.0.0/14
-172.70.0.0/15
-172.71.0.0/16
-173.245.48.0/20
-188.114.96.0/20
-190.93.240.0/20
-197.234.240.0/22
-198.41.128.0/17
-104.16.0.0/13
-104.24.0.0/14
-PREFIXES
 
         while IFS= read -r prefix; do
             [ -z "$prefix" ] && continue
             for _ in {1..16}; do
                 cidr_to_random_ip "$prefix" >> /tmp/zip_candidate_ips.txt
             done
-        done < /tmp/zip_prefixes.txt
+        done < <(generate_cf_prefixes)
 
-        shuf -n 260 /tmp/zip_candidate_ips.txt > /tmp/zip_unique.txt
+        shuf -n 270 /tmp/zip_candidate_ips.txt > /tmp/zip_unique.txt
 
-        (
-            cat /tmp/zip_unique.txt | xargs -P 50 -I {} bash -c '
-                ip="{}"
-                resp=$(curl -s --connect-timeout 1.2 --max-time 2.2 --max-filesize 65536 -A "Mozilla/5.0" "http://${ip}" 2>/dev/null)
-                if echo "$resp" | grep -Eqi "1003|Direct IP access not allowed"; then
-                    echo "$ip"
-                fi
-            ' > /tmp/zip_live_1003.txt
-        ) &
-        loading_spinner $! "Mengimbas 20 IP Error 1003 untuk poskod $clean_z..."
+        (verify_1003_and_vless_ws /tmp/zip_unique.txt /tmp/zip_live_1003.txt "$DEFAULT_VLESS_HOST") &
+        loading_spinner $! "Mengimbas 20 IP Error 1003 + VLESS WS untuk poskod $clean_z..."
 
         mapfile -t live_ips < <(head -n 180 /tmp/zip_live_1003.txt)
+        found_ips=()
+
         if [ ${#live_ips[@]} -eq 0 ]; then
             echo -e "${RED}Tiada IP aktif dijumpai.${NC}"
         else
@@ -654,43 +670,44 @@ PREFIXES
             awk -F'|' '!seen[$1]++' /tmp/final_zip_matched.txt | head -n 20 > /tmp/final_zip_clean.txt
             mapfile -t matched_zips < /tmp/final_zip_clean.txt
 
-            echo -e "${GREEN}[✔] Carian Selesai! 20 IP Error 1003 untuk Poskod '${YELLOW}${clean_z}${GREEN}':${NC}\n"
+            echo -e "${GREEN}[✔] Selesai! 20 IP Error 1003 + VLESS WS untuk Poskod '${YELLOW}${clean_z}${GREEN}':${NC}\n"
 
-            if [ ${#matched_zips[@]} -eq 0 ]; then
-                echo -e "${RED}Tiada IP sepadan dijumpai untuk poskod '${clean_z}'.${NC}"
-            else
-                count=1
-                found_ips=()
-                for entry in "${matched_zips[@]}"; do
-                    IFS='|' read -r f_ip f_city f_reg f_cnt f_zip f_isp <<< "$entry"
-                    found_ips+=("$f_ip")
-                    printf "${GREEN}%-3s %-16s [ Error 1003 ✔ | Postcode: %s | %s, %s | %s ]${NC}\n" "${count}." "$f_ip" "${f_zip:-N/A}" "$f_city" "$f_cnt" "$f_isp"
-                    ((count++))
+            count=1
+            for entry in "${matched_zips[@]}"; do
+                IFS='|' read -r f_ip f_city f_reg f_cnt f_zip f_isp <<< "$entry"
+                found_ips+=("$f_ip")
+                printf "${GREEN}%-3s %-16s [ 1003+WS ✔ | Zip:%s | %s, %s | %s ]${NC}\n" "${count}." "$f_ip" "${f_zip:-N/A}" "$f_city" "$f_cnt" "$f_isp"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Search Postcode : $clean_z (VLESS WS - Batch #${batch_num})"
+                echo "Ip Address Found :"
+                c=1
+                for f_ip in "${found_ips[@]}"; do
+                    echo "${c}. ${f_ip}"
+                    ((c++))
                 done
-
-                current_date=$(LC_TIME=C date +"%A %dth %B %Y")
-                {
-                    echo "$current_date"
-                    echo "Search Postcode : $clean_z (Batch #${batch_num})"
-                    echo "Ip Address Found :"
-                    c=1
-                    for f_ip in "${found_ips[@]}"; do
-                        echo "${c}. ${f_ip}"
-                        ((c++))
-                    done
-                    echo "--------------------------------------------------"
-                } >> "$HISTORY_FILE"
-            fi
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
         fi
 
         rm -f /tmp/zip_*.txt /tmp/batch_zip_*.json /tmp/all_batch_zip.json /tmp/final_zip_*.txt
 
         echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
         echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi (${YELLOW}${clean_z}${WHITE}), atau taip ${RED}[0]${WHITE} untuk Exit : "
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk 20 IP lagi, taip ${YELLOW}[1-20]${WHITE} jana Link VLESS, atau ${RED}[0]${WHITE} Exit : "
         read -r choice_loop
         if [ "$choice_loop" == "0" ]; then
             break
+        elif [[ "$choice_loop" =~ ^[0-9]+$ ]] && [ "$choice_loop" -ge 1 ] && [ "$choice_loop" -le "${#found_ips[@]}" ]; then
+            sel_ip="${found_ips[$((choice_loop-1))]}"
+            print_vless_links "$sel_ip" "$DEFAULT_VLESS_HOST"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk sambung cari 20 IP lagi, atau ${RED}[0]${WHITE} Exit : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
         fi
         ((batch_num++))
     done
