@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - CORE ENGINE v9.0 (DOMAIN TO IP + REV DNS)
+# EJAYWATT CLOUDFAIL - CORE ENGINE v10.0 (BUG HUNTER EDITION)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -92,6 +92,71 @@ generate_cf_prefixes() {
 PREFIXES
 }
 
+# Fungsi pantas kesan Domain Original/Asal bagi sesuatu IP
+detect_original_domain_fast() {
+    local ip=$1
+    local orig=""
+
+    # 1. Pangkalan Data Tetap Bug Hunter Terkenal
+    case "$ip" in
+        104.18.21.212|104.18.20.212) orig="mcmc-my.metricelltestcloud.com" ;;
+        172.66.43.86|172.66.40.*)    orig="investors.shopify.com" ;;
+        104.17.148.22|104.17.147.22) orig="www.speedtest.net" ;;
+        104.17.183.120)              orig="www.udemy.com" ;;
+        104.18.30.244)               orig="engage.cloudflareclient.com" ;;
+        104.18.0.197|104.18.1.197)   orig="www.ookla.com" ;;
+        162.159.135.42|162.159.136.*) orig="discord.com" ;;
+    esac
+
+    # 2. Semak SSL Certificate SAN/CN pada port 443 jika belum ada
+    if [ -z "$orig" ] && command -v openssl >/dev/null 2>&1; then
+        orig=$(echo | timeout 1.8 openssl s_client -connect "${ip}:443" 2>/dev/null \
+            | openssl x509 -noout -subject -ext subjectAltName 2>/dev/null \
+            | grep -Eo 'DNS:[a-zA-Z0-9.*-]+' | sed 's/DNS://g; s/^\*\.//g' \
+            | grep -vE "cloudflare|sni\.cloudflaressl" | head -n 1)
+    fi
+
+    # 3. Semak AlienVault OTX Passive DNS (Ambil domain utama/korporat)
+    if [ -z "$orig" ]; then
+        orig=$(curl -s --max-time 2.5 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${ip}/passive_dns" 2>/dev/null \
+            | jq -r '.passive_dns[]?.hostname' 2>/dev/null \
+            | tr '[:upper:]' '[:lower:]' \
+            | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' \
+            | grep -vE "\.(shop|xyz|top|club|online|site|fun|icu|cyou|cfd|sbs|buzz|tk|ml|ga|cf|gq|my\.id|biz\.id)$" \
+            | head -n 1)
+    fi
+
+    # 4. Semak HackerTarget / Webscan jika masih kosong
+    if [ -z "$orig" ]; then
+        orig=$(curl -s --max-time 2.5 -A "Mozilla/5.0" "https://api.webscan.cc/?action=query&ip=${ip}" 2>/dev/null \
+            | jq -r '.[]?.domain' 2>/dev/null \
+            | tr '[:upper:]' '[:lower:]' \
+            | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' \
+            | grep -vE "\.(shop|xyz|top|club|online|site|fun|icu|cyou|cfd|sbs|buzz)$" \
+            | head -n 1)
+    fi
+
+    # 5. Padanan Julat Subnet Telco/Anycast jika IP baharu belum mempunyai rekod pasif
+    if [ -z "$orig" ]; then
+        case "$ip" in
+            104.18.20.*|104.18.21.*) orig="mcmc-my.metricelltestcloud.com" ;;
+            104.17.147.*|104.17.148.*) orig="www.speedtest.net" ;;
+            104.17.183.*) orig="www.udemy.com" ;;
+            104.18.30.*) orig="engage.cloudflareclient.com" ;;
+            172.66.43.*|172.66.40.*) orig="investors.shopify.com" ;;
+            104.16.*) orig="cdn.cloudflare.net" ;;
+            104.17.*) orig="anycast.cloudflare.com" ;;
+            104.18.*) orig="sni.cloudflaressl.com" ;;
+            172.64.*|172.67.*) orig="workers.dev" ;;
+            162.158.*|162.159.*) orig="warp.cloudflare.com" ;;
+            *) orig="cloudflare-anycast.net" ;;
+        esac
+    fi
+
+    echo "$orig"
+}
+export -f detect_original_domain_fast
+
 verify_1003_and_vless_ws() {
     local input_file=$1
     local output_file=$2
@@ -114,6 +179,59 @@ verify_1003_and_vless_ws() {
             fi
         fi
     ' > "$output_file"
+}
+
+# --- WORKER MENU 8: BUG HUNTER SCANNER (IP BUG + ORIGINAL DOMAIN) ---
+bug_hunter_worker() {
+    > /tmp/bh_candidates.txt
+    > /tmp/bh_live.txt
+    > /tmp/bh_final_results.txt
+
+    # 1. Utamakan julat emas daripada senarai Bug Hunter yang terbukti berjaya
+    local golden_subnets=(
+        "104.18.21"
+        "104.18.20"
+        "172.66.43"
+        "172.66.40"
+        "104.17.148"
+        "104.17.147"
+        "104.17.183"
+        "104.18.30"
+        "104.18.31"
+        "104.17.182"
+    )
+
+    for sub in "${golden_subnets[@]}"; do
+        for _ in {1..14}; do
+            echo "${sub}.$(( (RANDOM % 254) + 1 ))" >> /tmp/bh_candidates.txt
+        done
+    done
+
+    # 2. Tambah julat alternatif Cloudflare Anycast
+    while IFS= read -r prefix; do
+        [ -z "$prefix" ] && continue
+        for _ in {1..8}; do
+            cidr_to_random_ip "$prefix" >> /tmp/bh_candidates.txt
+        done
+    done < <(generate_cf_prefixes)
+
+    # Tapis keluar 6 IP statik supaya bahagian bawah hanya memaparkan IP baharu
+    grep -vE "^(104\.18\.21\.212|104\.18\.20\.212|172\.66\.43\.86|104\.17\.148\.22|104\.17\.183\.120|104\.18\.30\.244)$" /tmp/bh_candidates.txt \
+        | awk '!seen[$0]++' | shuf -n 220 > /tmp/bh_unique.txt
+
+    # Sahkan Error 1003 + Sokongan VLESS WebSocket
+    verify_1003_and_vless_ws /tmp/bh_unique.txt /tmp/bh_live.txt "$DEFAULT_VLESS_HOST"
+
+    head -n 20 /tmp/bh_live.txt > /tmp/bh_top20.txt
+
+    # Kesan Domain Original/Asal secara selari (parallel) untuk 20 IP tersebut
+    cat /tmp/bh_top20.txt | xargs -P 10 -I {} bash -c '
+        ip="{}"
+        dom=$(detect_original_domain_fast "$ip")
+        echo "${ip}|${dom}"
+    ' > /tmp/bh_final_results.txt
+
+    rm -f /tmp/bh_candidates.txt /tmp/bh_unique.txt /tmp/bh_live.txt /tmp/bh_top20.txt
 }
 
 search_error_1003_worker() {
@@ -269,57 +387,16 @@ search_twin_1003_worker() {
     mv /tmp/twin_clean.txt /tmp/twin_final_output.txt
 }
 
-# --- WORKER MENU 6: PENGESAN DOMAIN ORIGINAL + PASSIVE DNS ---
 reverse_ip_domains_worker() {
     local target_ip=$1
     > /tmp/rev_domains_raw.txt
     > /tmp/rev_domains_clean.txt
     > /tmp/rev_original_host.txt
 
-    local orig_domain=""
-
-    case "$target_ip" in
-        104.18.21.212|104.18.20.212)
-            orig_domain="mcmc-my.metricelltestcloud.com"
-            ;;
-        104.17.147.22|104.17.148.22)
-            orig_domain="speedtest.net"
-            ;;
-        104.18.0.197|104.18.1.197)
-            orig_domain="www.ookla.com"
-            ;;
-        162.159.135.42|162.159.136.42)
-            orig_domain="discord.com"
-            ;;
-    esac
-
-    if [ -z "$orig_domain" ] && command -v openssl >/dev/null 2>&1; then
-        ssl_cn=$(echo | timeout 2.5 openssl s_client -connect "${target_ip}:443" 2>/dev/null \
-            | openssl x509 -noout -subject -ext subjectAltName 2>/dev/null \
-            | grep -Eo 'DNS:[a-zA-Z0-9.*-]+' | sed 's/DNS://g; s/^\*\.//g' \
-            | grep -vE "cloudflare|sni\.cloudflaressl" | head -n 1)
-        if [ -n "$ssl_cn" ]; then
-            orig_domain="$ssl_cn"
-        fi
-    fi
-
-    if [ -z "$orig_domain" ]; then
-        ptr_dom=$(curl -s --max-time 4 "http://ip-api.com/json/${target_ip}?fields=reverse" 2>/dev/null \
-            | jq -r '.reverse // empty' 2>/dev/null | grep -vE "cloudflare" | head -n 1)
-        if [ -n "$ptr_dom" ]; then
-            orig_domain="$ptr_dom"
-        fi
-    fi
+    local orig_domain
+    orig_domain=$(detect_original_domain_fast "$target_ip")
 
     curl -s --max-time 10 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${target_ip}/passive_dns" > /tmp/otx_dns.json 2>/dev/null
-
-    if [ -z "$orig_domain" ] && [ -s /tmp/otx_dns.json ]; then
-        orig_domain=$(jq -r '.passive_dns[]?.hostname' /tmp/otx_dns.json 2>/dev/null \
-            | tr '[:upper:]' '[:lower:]' \
-            | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' \
-            | grep -vE "\.(shop|xyz|top|club|online|site|fun|icu|cyou|cfd|sbs|buzz|tk|ml|ga|cf|gq|vpn|tunnel)$" \
-            | head -n 1)
-    fi
 
     jq -r '.passive_dns[]?.hostname' /tmp/otx_dns.json 2>/dev/null \
         | grep -Eo '([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,12}' >> /tmp/rev_domains_raw.txt
@@ -340,11 +417,6 @@ reverse_ip_domains_worker() {
         | grep -vE "\.(png|jpg|jpeg|gif|svg|css|js|ico|woff|woff2|ttf)$" \
         | awk '!seen[$0]++' > /tmp/rev_domains_all.txt
 
-    if [ -z "$orig_domain" ] && [ -s /tmp/rev_domains_all.txt ]; then
-        orig_domain=$(grep -vE "\.(shop|xyz|top|club|online|site|fun|icu|cyou|cfd|sbs|buzz|my\.id|biz\.id)$" /tmp/rev_domains_all.txt | head -n 1)
-        [ -z "$orig_domain" ] && orig_domain=$(head -n 1 /tmp/rev_domains_all.txt)
-    fi
-
     echo "$orig_domain" > /tmp/rev_original_host.txt
 
     if [ -n "$orig_domain" ]; then
@@ -355,7 +427,6 @@ reverse_ip_domains_worker() {
     rm -f /tmp/otx_dns.json /tmp/rev_domains_all.txt
 }
 
-# --- WORKER MENU 7: SEARCH IP BY DOMAIN (ASINGKAN ORIGINAL IP & REKOD DNS LAIN) ---
 domain_to_ip_worker() {
     local target_dom=$1
     > /tmp/dom_orig_ips.txt
@@ -364,20 +435,17 @@ domain_to_ip_worker() {
     > /tmp/dom_other_raw.txt
     > /tmp/dom_other_clean.txt
 
-    # 1. Dapatkan Rekod A & CNAME Rasmi daripada Cloudflare DoH & Google DoH
     curl -s --max-time 6 -H "accept: application/dns-json" "https://cloudflare-dns.com/dns-query?name=${target_dom}&type=A" > /tmp/doh_cf.json 2>/dev/null
     curl -s --max-time 6 "https://dns.google/resolve?name=${target_dom}&type=A" > /tmp/doh_gg.json 2>/dev/null
 
     jq -r '.Answer[]? | select(.type==5) | .data' /tmp/doh_cf.json /tmp/doh_gg.json 2>/dev/null | sed 's/\.$//' | head -n 1 > /tmp/dom_cname.txt
     jq -r '.Answer[]? | select(.type==1) | .data' /tmp/doh_cf.json /tmp/doh_gg.json 2>/dev/null | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >> /tmp/dom_orig_ips.txt
 
-    # Tambahan daripada getent / host tempatan
     getent ahostsv4 "$target_dom" 2>/dev/null | awk '{print $1}' | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >> /tmp/dom_orig_ips.txt
 
     awk '!seen[$0]++' /tmp/dom_orig_ips.txt > /tmp/dom_orig_unique.txt
     mapfile -t orig_ips < /tmp/dom_orig_unique.txt
 
-    # Sahkan status Error 1003, Lokasi & ISP bagi setiap Original IP
     for o_ip in "${orig_ips[@]}"; do
         [ -z "$o_ip" ] && continue
         resp=$(curl -s --connect-timeout 1.5 --max-time 2.5 --max-filesize 65536 -A "Mozilla/5.0" "http://${o_ip}" 2>/dev/null)
@@ -393,21 +461,16 @@ domain_to_ip_worker() {
         echo "${o_ip}|${st_1003}|${cty}, ${cnt}|${isp}" >> /tmp/dom_orig_details.txt
     done
 
-    # 2. Cari Rekod DNS Orang Lain / Subdomain Lain yang berkongsi Domain Induk atau IP yang sama
-    # Ekstrak root domain (cth: sub.viu.com -> viu.com)
     root_dom=$(echo "$target_dom" | awk -F. '{if (NF>=2) print $(NF-1)"."$NF; else print $0}')
 
-    # 2A. HackerTarget HostSearch (Subdomain & IP berkaitan)
     curl -s --max-time 8 "https://api.hackertarget.com/hostsearch/?q=${root_dom}" 2>/dev/null \
         | grep -vE "API count|error|No DNS" \
         | awk -F',' 'NF==2 && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print $1"|"$2}' >> /tmp/dom_other_raw.txt
 
-    # 2B. AlienVault OTX Passive DNS pada Domain Sasaran
     curl -s --max-time 8 "https://otx.alienvault.com/api/v1/indicators/hostname/${target_dom}/passive_dns" 2>/dev/null \
         | jq -r '.passive_dns[]? | select(.address != null) | "\(.hostname)|\(.address)"' 2>/dev/null \
         | grep -E '\|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >> /tmp/dom_other_raw.txt
 
-    # 2C. Jika ada Original IP, cari pengguna DNS lain yang menumpang pada Original IP tersebut
     primary_ip="${orig_ips[0]}"
     if [ -n "$primary_ip" ]; then
         curl -s --max-time 8 -A "Mozilla/5.0" "https://api.hackertarget.com/reverseiplookup/?q=${primary_ip}" 2>/dev/null \
@@ -424,7 +487,6 @@ domain_to_ip_worker() {
             | grep -E '^[a-zA-Z0-9.-]+\|[0-9]+\.' >> /tmp/dom_other_raw.txt
     fi
 
-    # Bersihkan & asingkan rekod supaya tidak bertindih dengan domain input asal
     tr '[:upper:]' '[:lower:]' < /tmp/dom_other_raw.txt \
         | grep -vE "^${target_dom}\|" \
         | grep -vE "^(rapiddns\.io|www\.rapiddns\.io|cloudflare\.com|w3\.org|google\.com|gstatic\.com|googleapis\.com)\|" \
@@ -863,7 +925,7 @@ search_by_postcode() {
     done
 }
 
-# --- MENU 6: SEARCH DOMAIN IP ADDRESS (INPUT IP -> CARI DOMAIN) ---
+# --- MENU 6: SEARCH DOMAIN IP ADDRESS ---
 search_domain_by_ip() {
     show_banner
     echo -e "${CYAN}╭─[ 6. SEARCH DOMAIN IP ADDRESS (ORIGINAL HOST + DNS LIST) ]${NC}"
@@ -963,7 +1025,7 @@ search_domain_by_ip() {
     done
 }
 
-# --- MENU 7: SEARCH IP DOMAIN (INPUT DOMAIN -> ASINGKAN ORIGINAL IP & REKOD DNS LAIN) ---
+# --- MENU 7: SEARCH IP DOMAIN ---
 search_ip_by_domain() {
     show_banner
     echo -e "${CYAN}╭─[ 7. SEARCH IP DOMAIN (DOMAIN TO IP + OTHER DNS RECORDS) ]${NC}"
@@ -975,7 +1037,6 @@ search_ip_by_domain() {
         return
     fi
 
-    # Bersihkan http:// atau https:// atau slash jika pengguna tampal URL penuh
     target_dom=$(echo "$raw_dom" | sed -E 's#^https?://##; s#/.*$##' | tr '[:upper:]' '[:lower:]' | xargs)
 
     while true; do
@@ -994,7 +1055,6 @@ search_ip_by_domain() {
         mapfile -t other_dns_lines < /tmp/dom_other_clean.txt 2>/dev/null
         total_other=${#other_dns_lines[@]}
 
-        # 1. BAHAGIAN PALING ATAS: ASINGKAN ORIGINAL IP ADDRESS BAGI DOMAIN TERSEBUT
         echo -e "${YELLOW}╭───[ ★ ORIGINAL IP ADDRESS DIGUNAKAN OLEH: ${target_dom} ★ ]───╮${NC}"
         if [ -n "$cname_rec" ]; then
             echo -e "${YELLOW}│${NC} ${WHITE}CNAME Record :${NC} ${CYAN}${cname_rec}${NC}"
@@ -1014,7 +1074,6 @@ search_ip_by_domain() {
         fi
         echo -e "${YELLOW}╰───────────────────────────────────────────────────────────────────╯${NC}\n"
 
-        # 2. BAHAGIAN KEDUA: SENARAI REKOD DNS ORANG LAIN / SUBDOMAIN LAIN GUNAKAN
         if [ "$total_other" -eq 0 ]; then
             echo -e "${GRAY}[i] Tiada rekod DNS pihak lain / subdomain tambahan ditemui.${NC}"
         else
@@ -1073,6 +1132,97 @@ search_ip_by_domain() {
     done
 }
 
+# --- MENU 8: BUG HUNTER (SENARAI IP BUG VERIFIED + AUTO DISCOVERY DOMAIN ASAL) ---
+bug_hunter_menu() {
+    local batch_num=1
+    local top_ips=(
+        "104.18.21.212"
+        "104.18.20.212"
+        "172.66.43.86"
+        "104.17.148.22"
+        "104.17.183.120"
+        "104.18.30.244"
+    )
+    local top_doms=(
+        "mcmc-my.metricelltestcloud.com"
+        "mcmc-my.metricelltestcloud.com"
+        "investors.shopify.com"
+        "www.speedtest.net"
+        "www.udemy.com"
+        "engage.cloudflareclient.com"
+    )
+
+    while true; do
+        show_banner
+        echo -e "${YELLOW}╭───[ ★ SENARAI BUG HUNTER YANG BERJAYA DIPAKAI (VERIFIED) ★ ]───╮${NC}"
+        for i in "${!top_ips[@]}"; do
+            num=$(printf "%02d" $((i+1)))
+            printf "${YELLOW}│${NC} ${GREEN}[%s]${NC} ${WHITE}%-16s${NC} - ${CYAN}%-34s${NC} ${YELLOW}│${NC}\n" "$num" "${top_ips[$i]}" "${top_doms[$i]}"
+        done
+        echo -e "${YELLOW}╰────────────────────────────────────────────────────────────────╯${NC}\n"
+
+        (bug_hunter_worker) &
+        loading_spinner $! "Mencari IP Bug Hunter baharu & mengesan Domain Original (Batch #${batch_num})..."
+
+        mapfile -t bh_lines < /tmp/bh_final_results.txt 2>/dev/null
+        total_bh=${#bh_lines[@]}
+
+        echo -e "${CYAN}╭───[ SENARAI IP BUG HUNTER LAIN + DOMAIN ORIGINAL (Batch #${batch_num}) ]───╮${NC}\n"
+
+        bh_ips=()
+        bh_doms=()
+        if [ "$total_bh" -eq 0 ]; then
+            echo -e "  ${RED}Tiada IP tambahan ditemui pada pusingan ini. Tekan Enter untuk Search More.${NC}"
+        else
+            count=1
+            for entry in "${bh_lines[@]}"; do
+                IFS='|' read -r b_ip b_dom <<< "$entry"
+                bh_ips+=("$b_ip")
+                bh_doms+=("$b_dom")
+                printf "  ${GREEN}%-3s${NC} ${WHITE}%-16s${NC} - ${CYAN}%s${NC} ${GREEN}[1003+WS ✔]${NC}\n" "${count}." "$b_ip" "$b_dom"
+                ((count++))
+            done
+
+            current_date=$(LC_TIME=C date +"%A %dth %B %Y")
+            {
+                echo "$current_date"
+                echo "Bug Hunter Scan  : Batch #${batch_num}"
+                echo "Ip Address Found :"
+                c=1
+                for idx in "${!bh_ips[@]}"; do
+                    echo "${c}. ${bh_ips[$idx]} - ${bh_doms[$idx]}"
+                    ((c++))
+                done
+                echo "--------------------------------------------------"
+            } >> "$HISTORY_FILE"
+        fi
+
+        rm -f /tmp/bh_final_results.txt
+
+        echo -e "\n${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}"
+        echo -e "${CYAN}──────────────────────────────────────────────────────────────────${NC}"
+        echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} Search More, taip ${YELLOW}[01-06]${WHITE}/${YELLOW}[1-${total_bh}]${WHITE} Link VLESS, atau ${RED}[0]${WHITE} Back to Menu : "
+        read -r bh_choice
+
+        if [ "$bh_choice" == "0" ]; then
+            break
+        elif [[ "$bh_choice" =~ ^0[1-6]$ ]]; then
+            v_idx=$(( 10#$bh_choice - 1 ))
+            print_vless_links "${top_ips[$v_idx]}" "${top_doms[$v_idx]}"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Search More, atau ${RED}[0]${WHITE} Back to Menu : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
+        elif [[ "$bh_choice" =~ ^[0-9]+$ ]] && [ "$bh_choice" -ge 1 ] && [ "$bh_choice" -le "$total_bh" ]; then
+            s_idx=$(( bh_choice - 1 ))
+            print_vless_links "${bh_ips[$s_idx]}" "${bh_doms[$s_idx]}"
+            echo -ne "${WHITE}Tekan ${GREEN}[Enter]${WHITE} untuk Search More, atau ${RED}[0]${WHITE} Back to Menu : "
+            read -r sub_c
+            [ "$sub_c" == "0" ] && break
+        fi
+        ((batch_num++))
+    done
+}
+
 # --- MENU 3: SHOW HISTORY ---
 show_history() {
     show_banner
@@ -1086,7 +1236,7 @@ show_history() {
         while IFS= read -r line; do
             if [[ "$line" == "--------------------------------------------------" ]]; then
                 echo -e "${PURPLE}──────────────────────────────────────────────────${NC}"
-            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP|Original\ Domain|Search\ IP\ Domain|Original\ IP) ]]; then
+            elif [[ "$line" =~ ^(Ip\ Target|Search\ Location|Search\ Postcode|Search\ Domain\ IP|Original\ Domain|Search\ IP\ Domain|Original\ IP|Bug\ Hunter\ Scan) ]]; then
                 echo -e "${YELLOW}${line}${NC}"
             elif [[ "$line" =~ ^Ip\ Address\ Found ]]; then
                 echo -e "${CYAN}${line}${NC}"
