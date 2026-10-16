@@ -1,0 +1,23 @@
+# Senarai modul CloudFail - SATU SUMBER untuk installer.sh, setup.sh dan menu.sh
+#
+# Format: satu laluan relatif dari akar repo per baris.
+# Baris kosong dan baris bermula '#' diabaikan.
+#
+#   menu/*  -> disumber oleh menu.sh dan juga dipasang oleh installer/setup
+#   more/*  -> modul tambahan (contoh antick.sh = installer, bukan library)
+#
+# Tambah modul baru: letak di sini sahaja, jangan edit senarai dalam
+# installer.sh / setup.sh / menu.sh.
+
+menu/ipclone.sh
+menu/twinip.sh
+menu/country.sh
+menu/postcode.sh
+menu/domainip.sh
+menu/ipdomain.sh
+menu/bughunter.sh
+menu/dnsipv6.sh
+menu/ipv6to4.sh
+menu/themes.sh
+menu/history.sh
+more/antick.sh

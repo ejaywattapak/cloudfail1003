@@ -17,11 +17,25 @@ fi
 # shellcheck source=/dev/null
 source "${INSTALL_DIR}/core.sh"
 
-MENU_MODULES=(
-    "ipclone.sh" "twinip.sh" "country.sh" "postcode.sh"
-    "domainip.sh" "ipdomain.sh" "bughunter.sh" "dnsipv6.sh"
-    "ipv6to4.sh" "themes.sh" "history.sh"
-)
+# Senarai modul dibaca dari modules.list (satu sumber bersama installer/setup).
+MODULES_LIST="${INSTALL_DIR}/modules.list"
+MENU_MODULES=()
+if [ -r "$MODULES_LIST" ]; then
+    while IFS= read -r _mod; do
+        case "$_mod" in ''|"#"*) continue ;; esac
+        case "$_mod" in
+            menu/*) MENU_MODULES+=("${_mod#menu/}") ;;
+        esac
+    done < "$MODULES_LIST"
+fi
+# Fallback kalau modules.list tiada (cth. pemasangan lama).
+if [ "${#MENU_MODULES[@]}" -eq 0 ]; then
+    MENU_MODULES=(
+        "ipclone.sh" "twinip.sh" "country.sh" "postcode.sh"
+        "domainip.sh" "ipdomain.sh" "bughunter.sh" "dnsipv6.sh"
+        "ipv6to4.sh" "themes.sh" "history.sh"
+    )
+fi
 
 for mod in "${MENU_MODULES[@]}"; do
     if [ -r "${INSTALL_DIR}/menu/${mod}" ]; then
