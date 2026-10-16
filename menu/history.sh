@@ -1,13 +1,13 @@
 #!/bin/bash
 # ==============================================================
-# MODULE 10: SEARCH HISTORY (history.sh)
-# Format Masa: 12-Hour AM/PM (Asia/Kuala_Lumpur)
-# ==============================================================
+# MODULE 11: SEARCH HISTORY
+# Format masa: 12-hour AM/PM (Asia/Kuala_Lumpur)
+# ============================================================== 
 
 menu_history() {
-    local now_kl
+    local now_kl h_opt
     now_kl=$(TZ="Asia/Kuala_Lumpur" date +"%d %b %Y | %I:%M:%S %p MYT")
-    sub_header "10. SEARCH HISTORY (KL TIME: ${now_kl})"
+    sub_header "11. SEARCH HISTORY (KL TIME: ${now_kl})"
 
     if [ ! -f "$HISTORY_FILE" ] || [ ! -s "$HISTORY_FILE" ]; then
         echo -e "\n  ${YELLOW}Tiada rekod carian ditemui setakat ini.${NC}\n"
@@ -24,13 +24,17 @@ menu_history() {
             fi
         done
     fi
+
     echo -e "\n${CYAN}──────────────────────────────────────────────────────────${NC}"
     echo -ne "${WHITE}Taip ${RED}[c]${WHITE} untuk Clear History, atau tekan ${GREEN}[Enter]${WHITE} kembali ke Menu : ${YELLOW}"
     read -r h_opt
-    echo -ne "${NC}"
+    printf '%b' "$NC"
     if [[ "$h_opt" == "c" || "$h_opt" == "C" ]]; then
-        > "$HISTORY_FILE"
-        echo -e "${GREEN}[✔] Rekod carian telah dibersihkan!${NC}"
+        if : > "$HISTORY_FILE"; then
+            echo -e "${GREEN}[✔] Rekod carian telah dibersihkan!${NC}"
+        else
+            echo -e "${RED}[!] Gagal mengosongkan fail history: ${HISTORY_FILE}${NC}"
+        fi
         sleep 1
     fi
 }
