@@ -77,53 +77,16 @@ menu_title_row() {
     printf '%b│%b%*s%s%*s%b│%b\n' "$CYAN" "$NC" "$left" "" "$title" "$right" "" "$CYAN" "$NC"
 }
 
-ensure_banner_font() {
-    local font_dir="${INSTALL_DIR}/fonts"
-    local font_file="${font_dir}/ANSI Shadow.flf"
-    local tmp="${font_file}.download.$$"
-
-    # Keep the original 3D font available even when the VPS lacks the system font.
-    if [ -s "$font_file" ] && grep -q '^flf2a' "$font_file"; then
-        return 0
-    fi
-    command -v curl >/dev/null 2>&1 || return 1
-    mkdir -p "$font_dir" 2>/dev/null || return 1
-    if curl -fsSL --connect-timeout 5 --max-time 20 --retry 2 \
-        'https://raw.githubusercontent.com/xero/figlet-fonts/main/ANSI%20Shadow.flf' \
-        -o "$tmp" 2>/dev/null && grep -q '^flf2a' "$tmp"; then
-        chmod 0644 "$tmp"
-        mv -f "$tmp" "$font_file"
-        return 0
-    fi
-    rm -f "$tmp"
-    return 1
-}
-
 show_main_banner() {
     clear
     get_system_stats
-    # Keep one terminal row above the original 3D ANSI Shadow banner.
+    # Only add one row of spacing; keep the original font and rendering command.
     printf '\n%b' "$BANNER_COLOR"
-    # Preserve the original 3D ANSI Shadow font. Never print custom banner text tiny.
-    local banner_text="${BANNER_TEXT:-EJAYWATT CLOUDFAIL}"
-    local banner_drawn=0
-    local terminal_cols=80 banner_width=78
-    if command -v tput >/dev/null 2>&1; then
-        terminal_cols=$(tput cols 2>/dev/null || printf '80')
-    fi
-    [[ "$terminal_cols" =~ ^[0-9]+$ ]] || terminal_cols=80
-    (( terminal_cols < 24 )) && terminal_cols=24
-    banner_width=$((terminal_cols - 2))
     if command -v figlet >/dev/null 2>&1; then
-        if ensure_banner_font && figlet -d "${INSTALL_DIR}/fonts" -w "$banner_width" -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
-            banner_drawn=1
-        elif figlet -w "$banner_width" -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
-            banner_drawn=1
+        if ! figlet -w 100 -f "ANSI Shadow" "${BANNER_TEXT:-EJAYWATT CLOUDFAIL}" 2>/dev/null; then
+            printf ' %s\n' "${BANNER_TEXT:-EJAYWATT CLOUDFAIL}"
         fi
-    fi
-    if [ "$banner_drawn" -eq 0 ]; then
-        if [ "$banner_text" = "EJAYWATT CLOUDFAIL" ]; then
-            # Static original 3D ASCII banner as a last-resort fallback.
+    else
             cat <<'ASCII'
   ███████╗     ██╗ █████╗ ██╗   ██╗██╗    ██╗ █████╗ ████████╗████████╗
   ██╔════╝     ██║██╔══██╗╚██╗ ██╔╝██║    ██║██╔══██╗╚══██╔══╝╚══██╔══╝
@@ -138,9 +101,6 @@ show_main_banner() {
   ╚██████╗███████╗╚██████╔╝╚██████╔╝██████╔╝██║     ██║  ██║██║███████╗
    ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝  ╚═╝╚═╝╚══════╝
 ASCII
-        else
-            printf '%b[!] Font 3D ANSI Shadow gagal dimuat; teks banner kecil tidak dipaparkan.%b\n' "$YELLOW" "$NC"
-        fi
     fi
     printf '%b\n' "$NC"
 
@@ -151,15 +111,6 @@ ASCII
     printf '%b│%b %b%-11s%b %b%-39.39s%b %b│%b\n' "$PURPLE" "$NC" "$WHITE" "vnStat Mo :" "$NC" "$GREEN" "Monthly Total: ${MONTH_TOT}" "$NC" "$PURPLE" "$NC"
     printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$PURPLE" "$NC"
 }
-
-# Use the alternate screen while the menu is open. Submenus inherit this screen.
-# On exit, restore the terminal and clear visible output/scrollback where supported.
-CF_MENU_ALT_SCREEN=0
-if [ -t 1 ]; then
-    printf '\033[?1049h\033[3J\033[H\033[2J'
-    CF_MENU_ALT_SCREEN=1
-    trap 'if [ "$CF_MENU_ALT_SCREEN" = 1 ]; then printf "\033[?25h\033[?1049l\033[3J\033[H\033[2J"; fi' EXIT
-fi
 
 while true; do
     show_main_banner
