@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL v13.2 - CORE ENGINE (ACCURATE HOST DETECTOR)
+# EJAYWATT CLOUDFAIL v13.3 - CORE ENGINE (12H AM/PM TIMESTAMP)
 # ==============================================================
 
 RED='\033[1;31m'
@@ -17,6 +17,12 @@ HISTORY_FILE="$HOME/.ip_cloner_history.log"
 DEFAULT_VLESS_HOST="sgs.ejwtpkvpn.my"
 DEFAULT_VLESS_UUID="9bdf39ed-0160-4d36-91d9-88737a9eabc0"
 DEFAULT_VLESS_TAG="random_2026-10-18"
+
+# Fungsi rasmi masa Malaysia format 12-Jam AM/PM untuk semua log History
+get_kl_timestamp() {
+    TZ="Asia/Kuala_Lumpur" date +"%d %b %Y | %I:%M:%S %p MYT"
+}
+export -f get_kl_timestamp
 
 sub_header() {
     local title="$1"
@@ -130,7 +136,6 @@ verify_1003_and_vless_ws() {
 
 detect_original_domain_fast() {
     local ip=$1
-    local orig=""
 
     case "$ip" in
         104.18.21.212|104.18.20.212) echo "mcmc-my.metricelltestcloud.com"; return ;;
