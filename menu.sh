@@ -1,35 +1,38 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL v13.0 - MAIN MENU (VNSTAT + KL TIME + CLEAN)
+# EJAYWATT CLOUDFAIL v13.1 - MAIN MENU (LOAD FROM MENU/ FOLDER)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
 INSTALL_DIR="/usr/local/share/cloudfail1003"
 [ ! -d "$INSTALL_DIR" ] && INSTALL_DIR="."
 
+# Muatkan core.sh dari direktori utama
 source "${INSTALL_DIR}/core.sh"
-source "${INSTALL_DIR}/ipclone.sh"
-source "${INSTALL_DIR}/twinip.sh"
-source "${INSTALL_DIR}/country.sh"
-source "${INSTALL_DIR}/postcode.sh"
-source "${INSTALL_DIR}/domainip.sh"
-source "${INSTALL_DIR}/ipdomain.sh"
-source "${INSTALL_DIR}/bughunter.sh"
-source "${INSTALL_DIR}/dnsipv6.sh"
-source "${INSTALL_DIR}/ipv6to4.sh"
-source "${INSTALL_DIR}/history.sh"
+
+# Muatkan semua modul dari sub-folder "menu/" (atau fallback ke direktori semasa jika wujud)
+MENU_MODULES=(
+    "ipclone.sh" "twinip.sh" "country.sh" "postcode.sh"
+    "domainip.sh" "ipdomain.sh" "bughunter.sh" "dnsipv6.sh"
+    "ipv6to4.sh" "history.sh"
+)
+
+for mod in "${MENU_MODULES[@]}"; do
+    if [ -f "${INSTALL_DIR}/menu/${mod}" ]; then
+        source "${INSTALL_DIR}/menu/${mod}"
+    elif [ -f "${INSTALL_DIR}/${mod}" ]; then
+        source "${INSTALL_DIR}/${mod}"
+    fi
+done
 
 get_system_stats() {
     KL_TIME=$(TZ="Asia/Kuala_Lumpur" date +"%d %b %Y | %I:%M:%S %p")
-    UPTIME_STR=$(uptime -p 2>/dev/null | sed 's/up //')
 
-    # Kiraan RAM & CPU
     MEM_USED=$(free -m | awk '/Mem:/ {print $3}')
     MEM_TOTAL=$(free -m | awk '/Mem:/ {print $2}')
     MEM_PCT=$(( MEM_USED * 100 / (MEM_TOTAL > 0 ? MEM_TOTAL : 1) ))
     CPU_LOAD=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
 
-    # Kiraan Trafik Sebenar vnStat (Hari Ini & Bulan Ini)
     IFACE=$(ip route show default 2>/dev/null | awk '{print $5}' | head -n 1)
     if command -v vnstat >/dev/null 2>&1 && [ -n "$IFACE" ]; then
         VN_LINE=$(vnstat -i "$IFACE" --oneline 2>/dev/null)
