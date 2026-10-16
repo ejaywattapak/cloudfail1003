@@ -77,18 +77,46 @@ menu_title_row() {
     printf '%b│%b%*s%s%*s%b│%b\n' "$CYAN" "$NC" "$left" "" "$title" "$right" "" "$CYAN" "$NC"
 }
 
+ensure_banner_font() {
+    local font_dir="${INSTALL_DIR}/fonts"
+    local font_file="${font_dir}/ANSI Shadow.flf"
+    local tmp="${font_file}.download.$$"
+
+    # Keep the original 3D font available even when the VPS lacks the system font.
+    if [ -s "$font_file" ] && grep -q '^flf2a' "$font_file"; then
+        return 0
+    fi
+    command -v curl >/dev/null 2>&1 || return 1
+    mkdir -p "$font_dir" 2>/dev/null || return 1
+    if curl -fsSL --connect-timeout 5 --max-time 20 --retry 2 \
+        'https://raw.githubusercontent.com/xero/figlet-fonts/main/ANSI%20Shadow.flf' \
+        -o "$tmp" 2>/dev/null && grep -q '^flf2a' "$tmp"; then
+        chmod 0644 "$tmp"
+        mv -f "$tmp" "$font_file"
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
 show_main_banner() {
     clear
     get_system_stats
     printf '%b' "$BANNER_COLOR"
-    # Keep the original 3D ASCII font (FIGlet ANSI Shadow); only its text is editable.
+    # Preserve the original 3D ANSI Shadow font. Never print custom banner text tiny.
+    local banner_text="${BANNER_TEXT:-EJAYWATT CLOUDFAIL}"
+    local banner_drawn=0
     if command -v figlet >/dev/null 2>&1; then
-        if ! figlet -w 100 -f "ANSI Shadow" "${BANNER_TEXT:-EJAYWATT CLOUDFAIL}" 2>/dev/null; then
-            printf '  %s\n' "${BANNER_TEXT:-EJAYWATT CLOUDFAIL}"
+        if ensure_banner_font && figlet -d "${INSTALL_DIR}/fonts" -w 100 -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
+            banner_drawn=1
+        elif figlet -w 100 -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
+            banner_drawn=1
         fi
-    else
-        # Do not silently replace the original banner with a different font.
-        cat <<'ASCII'
+    fi
+    if [ "$banner_drawn" -eq 0 ]; then
+        if [ "$banner_text" = "EJAYWATT CLOUDFAIL" ]; then
+            # Static original 3D ASCII banner as a last-resort fallback.
+            cat <<'ASCII'
   ███████╗     ██╗ █████╗ ██╗   ██╗██╗    ██╗ █████╗ ████████╗████████╗
   ██╔════╝     ██║██╔══██╗╚██╗ ██╔╝██║    ██║██╔══██╗╚══██╔══╝╚══██╔══╝
   █████╗       ██║███████║ ╚████╔╝ ██║ █╗ ██║███████║   ██║      ██║   
@@ -102,6 +130,9 @@ show_main_banner() {
   ╚██████╗███████╗╚██████╔╝╚██████╔╝██████╔╝██║     ██║  ██║██║███████╗
    ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝  ╚═╝╚═╝╚══════╝
 ASCII
+        else
+            printf '%b[!] Font 3D ANSI Shadow gagal dimuat; teks banner kecil tidak dipaparkan.%b\n' "$YELLOW" "$NC"
+        fi
     fi
     printf '%b\n' "$NC"
 
