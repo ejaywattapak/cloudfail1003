@@ -80,27 +80,38 @@ menu_title_row() {
 show_main_banner() {
     clear
     get_system_stats
-    # Only add one row of spacing; keep the original font and rendering command.
+    # Keep the original 3D ANSI Shadow font and one blank row above the banner.
     printf '\n%b' "$BANNER_COLOR"
+    local banner_text="${BANNER_TEXT:-EJAYWATT CLOUDFAIL}"
+    local font_dir="${INSTALL_DIR}/fonts"
+    local font_file="${font_dir}/ANSI Shadow.flf"
+    local font_tmp="${font_file}.tmp.$$"
+
     if command -v figlet >/dev/null 2>&1; then
-        if ! figlet -w 100 -f "ANSI Shadow" "${BANNER_TEXT:-EJAYWATT CLOUDFAIL}" 2>/dev/null; then
-            printf ' %s\n' "${BANNER_TEXT:-EJAYWATT CLOUDFAIL}"
+        # If the ANSI Shadow font is missing, fetch it once and cache it locally.
+        if [ ! -s "$font_file" ] || ! grep -q '^flf2a' "$font_file" 2>/dev/null; then
+            mkdir -p "$font_dir" 2>/dev/null || true
+            if command -v curl >/dev/null 2>&1 && \
+               curl -fsSL --connect-timeout 5 --max-time 20 --retry 1 \
+                   'https://raw.githubusercontent.com/xero/figlet-fonts/main/ANSI%20Shadow.flf' \
+                   -o "$font_tmp" 2>/dev/null && grep -q '^flf2a' "$font_tmp"; then
+                chmod 0644 "$font_tmp"
+                mv -f "$font_tmp" "$font_file"
+            else
+                rm -f "$font_tmp"
+            fi
+        fi
+
+        if [ -s "$font_file" ] && grep -q '^flf2a' "$font_file" 2>/dev/null; then
+            if ! figlet -d "$font_dir" -w 100 -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
+                printf '%b[!] Gagal memuat font 3D ANSI Shadow.%b\n' "$YELLOW" "$NC"
+            fi
+        elif ! figlet -w 100 -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
+            # Do not replace the requested 3D font with plain text.
+            printf '%b[!] Font 3D ANSI Shadow tidak ditemui. Semak pemasangan FIGlet/font.%b\n' "$YELLOW" "$NC"
         fi
     else
-            cat <<'ASCII'
-  ███████╗     ██╗ █████╗ ██╗   ██╗██╗    ██╗ █████╗ ████████╗████████╗
-  ██╔════╝     ██║██╔══██╗╚██╗ ██╔╝██║    ██║██╔══██╗╚══██╔══╝╚══██╔══╝
-  █████╗       ██║███████║ ╚████╔╝ ██║ █╗ ██║███████║   ██║      ██║   
-  ██╔══╝  ██   ██║██╔══██║  ╚██╔╝  ██║███╗██║██╔══██║   ██║      ██║   
-  ███████╗╚█████╔╝██║  ██║   ██║   ╚███╔███╔╝██║  ██║   ██║      ██║   
-  ╚══════╝ ╚════╝ ╚═╝  ╚═╝   ╚═╝    ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝      ╚═╝   
-   ██████╗██╗      ██████╗ ██╗   ██╗██████╗ ███████╗ █████╗ ██╗██╗     
-  ██╔════╝██║     ██╔═══██╗██║   ██║██╔══██╗██╔════╝██╔══██╗██║██║     
-  ██║     ██║     ██║   ██║██║   ██║██║  ██║█████╗  ███████║██║██║     
-  ██║     ██║     ██║   ██║██║   ██║██║  ██║██╔══╝  ██╔══██║██║██║     
-  ╚██████╗███████╗╚██████╔╝╚██████╔╝██████╔╝██║     ██║  ██║██║███████╗
-   ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝  ╚═╝╚═╝╚══════╝
-ASCII
+        printf '%b[!] FIGlet belum dipasang; banner 3D tidak dapat dipaparkan.%b\n' "$YELLOW" "$NC"
     fi
     printf '%b\n' "$NC"
 
