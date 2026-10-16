@@ -1,9 +1,10 @@
 #!/bin/bash
 # ==============================================================
 # EJAYWATT CLOUDFAIL v13.5 - OFFICIAL INSTALLER / CHECK & UPDATE
+# Option 2 downloads, validates and updates files from GitHub,
+# runs ANTICK, then opens the main menu.
 # Repo: https://github.com/ejaywattapak/cloudfail1003
-# Option 2 downloads, validates and updates local files from GitHub.
-# ============================================================== 
+# ==============================================================
 
 RED='\033[1;31m'
 GREEN='\033[1;32m'
@@ -159,8 +160,7 @@ check_and_update_modules() {
         update_one "more/${file}" "${MORE_DIR}/${file}" || failures=$((failures + 1))
     done
 
-    # Update the installer itself only when launched from a real file path.
-    # Avoid trying to replace /dev/fd or process-substitution paths.
+    # Refresh installer itself if it's installed as a regular local file.
     case "$SELF_PATH" in
         /dev/*|/proc/*|/run/*|/tmp/*)
             echo -e "\n${YELLOW}[i] installer.sh berjalan dari lokasi sementara; fail installer tidak diganti.${NC}"
@@ -185,7 +185,25 @@ check_and_update_modules() {
     else
         echo -e "${RED}[!] ${failures} fail gagal dikemas kini. Salinan lama dikekalkan untuk fail yang gagal.${NC}"
     fi
-    read -rp "Tekan Enter untuk kembali..." _
+
+    # Option 2 really runs ANTICK after fetching more/antick.sh.
+    if [ -s "${MORE_DIR}/antick.sh" ]; then
+        echo -e "${CYAN}[➜] Menjalankan pemasang ANTICK...${NC}"
+        if bash "${MORE_DIR}/antick.sh"; then
+            echo -e "${GREEN}[✔] ANTICK berjaya dipasang.${NC}"
+        else
+            echo -e "${YELLOW}[!] ANTICK gagal dipasang; semak mesej di atas.${NC}"
+        fi
+    else
+        echo -e "${RED}[✘] more/antick.sh tiada; ANTICK tidak dijalankan.${NC}"
+    fi
+
+    # Once update and ANTICK attempt finish, go straight into the main menu.
+    if [ -t 0 ] && [ -x /usr/bin/menu ]; then
+        echo -e "${CYAN}[➜] Membuka menu CloudFail...${NC}"
+        /usr/bin/menu
+    fi
+    read -rp "Tekan Enter untuk kembali ke installer..." _
 }
 
 while true; do

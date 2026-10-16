@@ -3,7 +3,7 @@
 # EJAYWATT CLOUDFAIL v13.5 - INSTALL / UPDATE
 # Safe download, syntax validation and timestamped backups.
 # Repo: https://github.com/ejaywattapak/cloudfail1003
-# ============================================================== 
+# ==============================================================
 set -o pipefail
 
 RED='\033[1;31m'
@@ -56,7 +56,7 @@ timedatectl set-timezone Asia/Kuala_Lumpur 2>/dev/null \
 mkdir -p "$INSTALL_DIR" "$MENU_DIR" "$MORE_DIR" || fail "Gagal mencipta direktori pemasangan."
 
 # Download, check HTTP 200, validate Bash syntax, back up current copy,
-# and then replace the file. Existing working files are preserved on error.
+# then atomically replace the file. Existing files are preserved on error.
 download_script() {
     local rel="$1" dest="$2" tmp http_code backup stamp
     tmp="${dest}.download.$$"
@@ -102,9 +102,15 @@ for mod in "${MENU_MODULES[@]}"; do
 done
 
 say "${CYAN}[➜] Mengemas kini modul tambahan...${NC}"
-for mod in "antick.sh"; do
-    download_script "more/${mod}" "${MORE_DIR}/${mod}"
-done
+download_script "more/antick.sh" "${MORE_DIR}/antick.sh"
+
+# IMPORTANT: antick.sh is an installer, not a passive library file. Run it.
+say "${CYAN}[➜] Menjalankan pemasang ANTICK...${NC}"
+if bash "${MORE_DIR}/antick.sh"; then
+    say "${GREEN}[✔] ANTICK berjaya dipasang.${NC}"
+else
+    say "${YELLOW}[!] ANTICK gagal dipasang; semak mesej ralat di atas. Setup CloudFail diteruskan.${NC}"
+fi
 
 say "${CYAN}[➜] Mengaktifkan vnStat dan arahan menu...${NC}"
 if command -v vnstat >/dev/null 2>&1; then
@@ -119,7 +125,7 @@ ln -sfn "${INSTALL_DIR}/menu.sh" /usr/bin/menu
 ln -sfn "${INSTALL_DIR}/menu.sh" /usr/local/bin/menu
 chmod 0755 "${INSTALL_DIR}/menu.sh" /usr/bin/menu 2>/dev/null || true
 
-# Preserve automatic-menu behavior while preventing duplicate launches.
+# Preserve auto-menu behavior on new interactive SSH logins.
 cat > /etc/profile.d/ejaywatt_cloudfail.sh <<'AUTOPOP'
 if [ -t 0 ] && [[ $- == *i* ]] && [ -z "${CF_MENU_LOADED:-}" ]; then
     export CF_MENU_LOADED=1
@@ -140,3 +146,9 @@ say "${WHITE}Tema disimpan dalam: ${HOME}/.cloudfail_theme.conf${NC}"
 say "${WHITE}Buka menu dengan arahan: ${CYAN}menu${NC}"
 say "${YELLOW}[i] VPS tidak akan reboot secara automatik.${NC}"
 say "${CYAN}[i] Backup lama disimpan sebagai fail .bak.TIMESTAMP.${NC}"
+
+# Run the main menu immediately, but only in an interactive terminal.
+if [ -t 0 ] && [ -x /usr/bin/menu ]; then
+    say "${CYAN}[➜] Membuka menu CloudFail...${NC}"
+    exec /usr/bin/menu
+fi
