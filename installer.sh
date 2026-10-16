@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL v13.1 - OFFICIAL INSTALLER (FOLDER MENU)
+# EJAYWATT CLOUDFAIL v13.4 - OFFICIAL INSTALLER / MODULE CHECKER
 # Repo: https://github.com/ejaywattapak/cloudfail1003
-# ==============================================================
+# ============================================================== 
 
 RED='\033[1;31m'
 GREEN='\033[1;32m'
@@ -17,128 +17,113 @@ NC='\033[0m'
 REPO_RAW="https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main"
 SELF_PATH="$(realpath "$0" 2>/dev/null || echo "$0")"
 
-# Fail di direktori utama (Root Repo)
 ROOT_FILES=("setup.sh" "menu.sh" "core.sh")
-
-# Fail modul di dalam folder "menu/"
 MENU_MODULES=(
     "ipclone.sh" "twinip.sh" "country.sh" "postcode.sh"
     "domainip.sh" "ipdomain.sh" "bughunter.sh" "dnsipv6.sh"
-    "ipv6to4.sh" "history.sh"
+    "ipv6to4.sh" "themes.sh" "history.sh"
 )
-
-# Fail modul di dalam folder "more/"
 MORE_MODULES=("antick.sh")
 
-show_3d_banner() {
+show_banner() {
     clear
     echo -e "${CYAN}"
-    cat << "ASCII"
-  ███████╗     ██╗ █████╗ ██╗   ██╗██╗    ██╗ █████╗ ████████╗████████╗
-  ██╔════╝     ██║██╔══██╗╚██╗ ██╔╝██║    ██║██╔══██╗╚══██╔══╝╚══██╔══╝
-  █████╗       ██║███████║ ╚████╔╝ ██║ █╗ ██║███████║   ██║      ██║   
-  ██╔══╝  ██   ██║██╔══██║  ╚██╔╝  ██║███╗██║██╔══██║   ██║      ██║   
-  ███████╗╚█████╔╝██║  ██║   ██║   ╚███╔███╔╝██║  ██║   ██║      ██║   
-  ╚══════╝ ╚════╝ ╚═╝  ╚═╝   ╚═╝    ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝      ╚═╝   
-   ██████╗██╗      ██████╗ ██╗   ██╗██████╗ ███████╗ █████╗ ██╗██╗     
-  ██╔════╝██║     ██╔═══██╗██║   ██║██╔══██╗██╔════╝██╔══██╗██║██║     
-  ██║     ██║     ██║   ██║██║   ██║██║  ██║█████╗  ███████║██║██║     
-  ██║     ██║     ██║   ██║██║   ██║██║  ██║██╔══╝  ██╔══██║██║██║     
-  ╚██████╗███████╗╚██████╔╝╚██████╔╝██████╔╝██║     ██║  ██║██║███████╗
-   ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝
-ASCII
+    if command -v figlet >/dev/null 2>&1; then
+        figlet -w 90 -f "ANSI Shadow" "EJAYWATT CLOUDFAIL" 2>/dev/null || echo "EJAYWATT CLOUDFAIL"
+    else
+        echo "EJAYWATT CLOUDFAIL"
+    fi
     echo -e "${NC}"
     echo -e "${PURPLE}╭──────────────────────────────────────────────────────╮${NC}"
-    echo -e "${PURPLE}│${NC}   ${WHITE}⚡ OFFICIAL MODULAR INSTALLER v13.1 (MENU FOLDER) ⚡${NC} ${PURPLE}│${NC}"
+    echo -e "${PURPLE}│${NC}   ${WHITE}⚡ OFFICIAL INSTALLER v13.4 — THEMES READY ⚡${NC}    ${PURPLE}│${NC}"
     echo -e "${PURPLE}╰──────────────────────────────────────────────────────╯${NC}"
 }
 
 run_installer() {
-    show_3d_banner
-    if [ "$EUID" -ne 0 ]; then
-        echo -e "${RED}[✘] Sila jalankan installer ini sebagai root (sudo su)!${NC}"
-        sleep 2
+    show_banner
+    if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+        echo -e "${RED}[✘] Sila jalankan installer sebagai root (sudo -i dahulu).${NC}"
+        read -rp "Tekan Enter untuk kembali..." _
         return
     fi
 
-    echo -e "${CYAN}[➜] Memuat turun setup.sh dari repositori GitHub...${NC}"
-    curl -fsSL "${REPO_RAW}/setup.sh" -o /tmp/cf_setup.sh
-    if [ ! -s /tmp/cf_setup.sh ]; then
+    local tmp="/tmp/cf_setup.sh.$$" status=0
+    echo -e "${CYAN}[➜] Memuat turun setup.sh dari GitHub...${NC}"
+    if ! curl -fsSL --retry 2 --connect-timeout 10 --max-time 120 "${REPO_RAW}/setup.sh" -o "$tmp"; then
+        rm -f "$tmp"
         echo -e "${RED}[✘] Gagal memuat turun setup.sh dari ${REPO_RAW}/setup.sh${NC}"
-        read -rp "Tekan Enter untuk kembali..."
+        read -rp "Tekan Enter untuk kembali..." _
         return
     fi
-
-    sed -i 's/\r$//' /tmp/cf_setup.sh
-    chmod +x /tmp/cf_setup.sh
-    rm -f "$SELF_PATH" "$HOME/installer.sh" ./installer.sh 2>/dev/null
-    bash /tmp/cf_setup.sh
-    exit 0
+    sed -i 's/\r$//' "$tmp"
+    if ! bash -n "$tmp"; then
+        rm -f "$tmp"
+        echo -e "${RED}[✘] setup.sh mempunyai ralat sintaks; pemasangan dibatalkan.${NC}"
+        read -rp "Tekan Enter untuk kembali..." _
+        return
+    fi
+    chmod 0700 "$tmp"
+    bash "$tmp"
+    status=$?
+    rm -f "$tmp"
+    if [ "$status" -eq 0 ]; then
+        echo -e "\n${GREEN}[✔] Pemasangan / kemas kini selesai.${NC}"
+    else
+        echo -e "\n${RED}[✘] Setup keluar dengan kod ${status}.${NC}"
+    fi
+    read -rp "Tekan Enter untuk kembali ke installer..." _
 }
 
-check_installer() {
-    show_3d_banner
-    echo -e "${CYAN}╭───[ MENYEMAK FAIL UTAMA & FOLDER MODUL DI GITHUB ]───╮${NC}\n"
+check_url() {
+    local path="$1" url="${REPO_RAW}/$1" code
+    code=$(curl -sSL --connect-timeout 5 --max-time 15 -o /dev/null -w '%{http_code}' "$url" || true)
+    if [ "$code" = "200" ]; then
+        printf "  ${GREEN}[✔] %-24s HTTP %s${NC}\n" "$path" "$code"
+        return 0
+    fi
+    printf "  ${RED}[✘] %-24s HTTP %s${NC}\n" "$path" "${code:-000}"
+    return 1
+}
 
-    echo -e "  ${YELLOW}▸ Fail Utama (Root Repo):${NC}"
+check_modules() {
+    show_banner
+    echo -e "${CYAN}Semakan fail yang akan digunakan oleh setup.sh:${NC}\n"
+    local failures=0 file
+    echo -e "${YELLOW}▸ Fail utama:${NC}"
     for file in "${ROOT_FILES[@]}"; do
-        http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${REPO_RAW}/${file}")
-        if [ "$http_code" == "200" ]; then
-            printf "    ${GREEN}[✔] %-22s : OK (HTTP 200)${NC}\n" "$file"
-        else
-            printf "    ${RED}[✘] %-22s : MISSING (HTTP %s)${NC}\n" "$file" "$http_code"
-        fi
+        check_url "$file" || failures=$((failures + 1))
     done
-
-    echo -e "\n  ${YELLOW}▸ Modul Dalam Folder (menu/):${NC}"
-    for mod in "${MENU_MODULES[@]}"; do
-        http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${REPO_RAW}/menu/${mod}")
-        if [ "$http_code" == "200" ]; then
-            printf "    ${GREEN}[✔] %-22s : OK (HTTP 200)${NC}\n" "menu/${mod}"
-        else
-            mod_no_ext="${mod%.sh}"
-            http_code_alt=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${REPO_RAW}/menu/${mod_no_ext}")
-            if [ "$http_code_alt" == "200" ]; then
-                printf "    ${GREEN}[✔] %-22s : OK (HTTP 200)${NC}\n" "menu/${mod_no_ext}"
-            else
-                printf "    ${RED}[✘] %-22s : MISSING (HTTP %s)${NC}\n" "menu/${mod}" "$http_code"
-            fi
-        fi
+    echo -e "\n${YELLOW}▸ Modul menu/:${NC}"
+    for file in "${MENU_MODULES[@]}"; do
+        check_url "menu/${file}" || failures=$((failures + 1))
     done
-
-    echo -e "\n  ${YELLOW}▸ Modul Tambahan (more/):${NC}"
-    for mmod in "${MORE_MODULES[@]}"; do
-        http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${REPO_RAW}/more/${mmod}")
-        if [ "$http_code" == "200" ]; then
-            printf "    ${GREEN}[✔] %-22s : OK (HTTP 200)${NC}\n" "more/${mmod}"
-        else
-            mmod_no_ext="${mmod%.sh}"
-            http_code_alt=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${REPO_RAW}/more/${mmod_no_ext}")
-            if [ "$http_code_alt" == "200" ]; then
-                printf "    ${GREEN}[✔] %-22s : OK (HTTP 200)${NC}\n" "more/${mmod_no_ext}"
-            else
-                printf "    ${RED}[✘] %-22s : MISSING (HTTP %s)${NC}\n" "more/${mmod}" "$http_code"
-            fi
-        fi
+    echo -e "\n${YELLOW}▸ Modul tambahan more/:${NC}"
+    for file in "${MORE_MODULES[@]}"; do
+        check_url "more/${file}" || failures=$((failures + 1))
     done
-
-    echo -ne "\n${WHITE}Tekan Enter untuk kembali ke menu installer...${NC}"
-    read -r
+    echo
+    if [ "$failures" -eq 0 ]; then
+        echo -e "${GREEN}[✔] Semua fail ditemui. Themes dan Search History ada dalam senarai modul.${NC}"
+    else
+        echo -e "${RED}[!] ${failures} fail tiada atau tidak dapat dicapai. Baiki GitHub dahulu sebelum install/update.${NC}"
+    fi
+    read -rp "Tekan Enter untuk kembali..." _
 }
 
 while true; do
-    show_3d_banner
+    show_banner
     echo -e "${CYAN}╭──────────────────────────────────────────────────────╮${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Run Installer${NC}    ${GRAY}(Pasang semua modul & vnstat)${NC} ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Check Modules${NC}    ${GRAY}(Semak menu/ & more/ GitHub)${NC}  ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${RED}[0]${NC} ${WHITE}Exit${NC}             ${GRAY}(Keluar dari installer)${NC}       ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Run Installer / Update${NC}  ${GRAY}(Pasang atau kemas kini)${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Check Modules${NC}            ${GRAY}(Semak semua fail GitHub) ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${RED}[0]${NC} ${WHITE}Exit${NC}                     ${GRAY}(Keluar)                 ${CYAN}│${NC}"
     echo -e "${CYAN}╰──────────────────────────────────────────────────────╯${NC}"
     echo -ne "${CYAN}╰─➤ Pilih [1/2/0] : ${YELLOW}"
     read -r opt
-    echo -ne "${NC}"
-    case $opt in
+    printf '%b' "$NC"
+    case "$opt" in
         1) run_installer ;;
-        2) check_installer ;;
-        0) rm -f "$SELF_PATH" 2>/dev/null; exit 0 ;;
+        2) check_modules ;;
+        0) exit 0 ;;
+        *) echo -e "${RED}[!] Pilihan tidak sah.${NC}"; sleep 1 ;;
     esac
 done

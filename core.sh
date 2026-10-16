@@ -1,24 +1,90 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL v13.3 - CORE ENGINE (12H AM/PM TIMESTAMP)
+# EJAYWATT CLOUDFAIL v13.4 - CORE ENGINE + GLOBAL THEMES
 # ==============================================================
 
-RED='\033[1;31m'
-GREEN='\033[1;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
-PURPLE='\033[1;35m'
-CYAN='\033[1;36m'
-WHITE='\033[1;37m'
-GRAY='\033[0;37m'
-NC='\033[0m'
+# Default palette. apply_menu_theme resets these before applying a theme.
+CF_RED='\033[1;31m'
+CF_GREEN='\033[1;32m'
+CF_YELLOW='\033[1;33m'
+CF_BLUE='\033[1;34m'
+CF_PURPLE='\033[1;35m'
+CF_CYAN='\033[1;36m'
+CF_WHITE='\033[1;37m'
+CF_GRAY='\033[0;37m'
+CF_NC='\033[0m'
 
-HISTORY_FILE="$HOME/.ip_cloner_history.log"
+RED="$CF_RED"
+GREEN="$CF_GREEN"
+YELLOW="$CF_YELLOW"
+BLUE="$CF_BLUE"
+PURPLE="$CF_PURPLE"
+CYAN="$CF_CYAN"
+WHITE="$CF_WHITE"
+GRAY="$CF_GRAY"
+NC="$CF_NC"
+
+HISTORY_FILE="${HOME}/.ip_cloner_history.log"
+THEME_CONFIG_FILE="${HOME}/.cloudfail_theme.conf"
+MENU_THEME="Default"
+BANNER_TEXT="EJAYWATT CLOUDFAIL"
+BANNER_COLOR="$CYAN"
 DEFAULT_VLESS_HOST="sgs.ejwtpkvpn.my"
 DEFAULT_VLESS_UUID="9bdf39ed-0160-4d36-91d9-88737a9eabc0"
 DEFAULT_VLESS_TAG="random_2026-10-18"
 
-# Fungsi rasmi masa Malaysia format 12-Jam AM/PM untuk semua log History
+# Settings are written by menu/themes.sh using shell-escaped values.
+if [ -r "$THEME_CONFIG_FILE" ]; then
+    # shellcheck source=/dev/null
+    source "$THEME_CONFIG_FILE"
+fi
+
+apply_menu_theme() {
+    RED="$CF_RED"
+    GREEN="$CF_GREEN"
+    YELLOW="$CF_YELLOW"
+    BLUE="$CF_BLUE"
+    PURPLE="$CF_PURPLE"
+    CYAN="$CF_CYAN"
+    WHITE="$CF_WHITE"
+    GRAY="$CF_GRAY"
+    NC="$CF_NC"
+    BANNER_COLOR="$CYAN"
+
+    case "${MENU_THEME:-Default}" in
+        "WhatsApp Style")
+            GREEN='\033[1;32m'
+            CYAN='\033[1;32m'
+            PURPLE='\033[1;32m'
+            BLUE='\033[1;32m'
+            YELLOW='\033[1;37m'
+            BANNER_COLOR="$GREEN"
+            ;;
+        "YouTube Style")
+            RED='\033[1;31m'
+            CYAN='\033[1;31m'
+            PURPLE='\033[1;37m'
+            BLUE='\033[1;31m'
+            GREEN='\033[1;37m'
+            YELLOW='\033[1;37m'
+            BANNER_COLOR="$RED"
+            ;;
+        "Ocean Style")
+            CYAN='\033[1;36m'
+            PURPLE='\033[1;34m'
+            BLUE='\033[1;34m'
+            GREEN='\033[1;37m'
+            YELLOW='\033[1;36m'
+            BANNER_COLOR="$BLUE"
+            ;;
+        *)
+            MENU_THEME="Default"
+            BANNER_COLOR="$CYAN"
+            ;;
+    esac
+}
+apply_menu_theme
+# Malaysia time format: 12-hour AM/PM with MYT marker.
 get_kl_timestamp() {
     TZ="Asia/Kuala_Lumpur" date +"%d %b %Y | %I:%M:%S %p MYT"
 }
@@ -33,12 +99,12 @@ sub_header() {
 }
 
 loading_spinner() {
-    local pid=$1
-    local text=$2
+    local pid="$1"
+    local text="$2"
     local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local i=0
     while kill -0 "$pid" 2>/dev/null; do
-        i=$(( (i+1) % 10 ))
+        i=$(( (i + 1) % 10 ))
         printf "\r${CYAN}[%s]${NC} ${WHITE}%s${NC}" "${spin:$i:1}" "$text"
         sleep 0.1
     done
@@ -46,7 +112,7 @@ loading_spinner() {
 }
 
 cidr_to_random_ip() {
-    local cidr=$1
+    local cidr="$1"
     local ip="${cidr%/*}"
     local mask="${cidr#*/}"
     IFS='.' read -r a b c d <<< "$ip"
@@ -65,7 +131,7 @@ cidr_to_random_ip() {
 }
 
 generate_cf_prefixes() {
-    cat << 'PREFIXES'
+    cat <<'PREFIXES'
 104.16.0.0/13
 104.24.0.0/14
 172.64.0.0/13
@@ -88,7 +154,7 @@ PREFIXES
 }
 
 print_vless_links() {
-    local bug_ip=$1
+    local bug_ip="$1"
     local v_host="${2:-$DEFAULT_VLESS_HOST}"
     echo -e "\n${CYAN}╭───[ PAUTAN VLESS UNTUK: ${YELLOW}${bug_ip}${CYAN} (Host: ${v_host}) ]───╮${NC}"
     echo -e "${WHITE}Link Ws TLS :${NC}"
@@ -111,8 +177,8 @@ print_vless_links() {
 }
 
 verify_1003_and_vless_ws() {
-    local input_file=$1
-    local output_file=$2
+    local input_file="$1"
+    local output_file="$2"
     local v_host="${3:-$DEFAULT_VLESS_HOST}"
 
     cat "$input_file" | xargs -P 55 -I {} bash -c '
@@ -135,7 +201,8 @@ verify_1003_and_vless_ws() {
 }
 
 detect_original_domain_fast() {
-    local ip=$1
+    local ip="$1"
+    local ssl_dom ptr_dom otx_list d lip isp_name
 
     case "$ip" in
         104.18.21.212|104.18.20.212) echo "mcmc-my.metricelltestcloud.com"; return ;;
@@ -145,34 +212,27 @@ detect_original_domain_fast() {
         104.18.30.244)               echo "engage.cloudflareclient.com"; return ;;
     esac
 
-    if command -v openssl >/dev/null 2>&1; then
+    if command -v openssl >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
         ssl_dom=$(echo | timeout 2.0 openssl s_client -connect "${ip}:443" 2>/dev/null \
             | openssl x509 -noout -subject -ext subjectAltName 2>/dev/null \
             | grep -Eo 'DNS:[a-zA-Z0-9.*-]+' | sed 's/DNS://g; s/^\*\.//g' \
-            | grep -vE "^(cloudflare\.com|sni\.cloudflaressl\.com|localhost)$" | head -n 1)
-        if [ -n "$ssl_dom" ]; then
-            echo "$ssl_dom"
-            return
-        fi
+            | grep -vE '^(cloudflare\.com|sni\.cloudflaressl\.com|localhost)$' | head -n 1)
+        if [ -n "$ssl_dom" ]; then echo "$ssl_dom"; return; fi
     fi
 
-    ptr_dom=$(curl -s --max-time 2.5 "http://ip-api.com/json/${ip}?fields=reverse" 2>/dev/null | jq -r '.reverse // empty')
-    if [ -n "$ptr_dom" ]; then
-        echo "$ptr_dom"
-        return
+    if command -v jq >/dev/null 2>&1; then
+        ptr_dom=$(curl -s --max-time 2.5 "http://ip-api.com/json/${ip}?fields=reverse" 2>/dev/null | jq -r '.reverse // empty')
+        if [ -n "$ptr_dom" ]; then echo "$ptr_dom"; return; fi
+        otx_list=$(curl -s --max-time 3 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${ip}/passive_dns" 2>/dev/null \
+            | jq -r '.passive_dns[]?.hostname' 2>/dev/null | tr '[:upper:]' '[:lower:]' | awk '!seen[$0]++' | head -n 15)
+        for d in $otx_list; do
+            lip=$(getent ahostsv4 "$d" 2>/dev/null | awk '{print $1}' | head -n 1)
+            if [ "$lip" = "$ip" ]; then echo "$d"; return; fi
+        done
+        isp_name=$(curl -s --max-time 2.5 "http://ip-api.com/json/${ip}?fields=isp" 2>/dev/null | jq -r '.isp // "Direct-Server"')
+    else
+        isp_name="Direct-Server"
     fi
-
-    otx_list=$(curl -s --max-time 3 -A "Mozilla/5.0" "https://otx.alienvault.com/api/v1/indicators/IPv4/${ip}/passive_dns" 2>/dev/null \
-        | jq -r '.passive_dns[]?.hostname' 2>/dev/null | tr '[:upper:]' '[:lower:]' | awk '!seen[$0]++' | head -n 15)
-    for d in $otx_list; do
-        lip=$(getent ahostsv4 "$d" 2>/dev/null | awk '{print $1}' | head -n 1)
-        if [ "$lip" == "$ip" ]; then
-            echo "$d"
-            return
-        fi
-    done
-
-    isp_name=$(curl -s --max-time 2.5 "http://ip-api.com/json/${ip}?fields=isp" 2>/dev/null | jq -r '.isp // "Direct-Server"')
-    echo "Direct-IP (${isp_name})"
+    echo "Direct-IP (${isp_name:-Direct-Server})"
 }
 export -f detect_original_domain_fast

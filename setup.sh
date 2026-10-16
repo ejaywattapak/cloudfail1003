@@ -1,9 +1,10 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL v13.1 - SYSTEM & FOLDER MENU SETUP
-# Includes: EJAYWATT ANTICK v2.0
+# EJAYWATT CLOUDFAIL v13.4 - INSTALL / UPDATE
+# Includes global Themes support. Does not reboot automatically.
 # Repo: https://github.com/ejaywattapak/cloudfail1003
-# ==============================================================
+# ============================================================== 
+set -o pipefail
 
 RED='\033[1;31m'
 GREEN='\033[1;32m'
@@ -17,7 +18,15 @@ INSTALL_DIR="/usr/local/share/cloudfail1003"
 MENU_DIR="${INSTALL_DIR}/menu"
 MORE_DIR="${INSTALL_DIR}/more"
 
-if [ -f /etc/os-release ]; then
+say() { echo -e "$1"; }
+fail() { say "${RED}[✘] $*${NC}" >&2; exit 1; }
+
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    fail "Sila jalankan setup sebagai root (sudo -i dahulu)."
+fi
+
+if [ -r /etc/os-release ]; then
+    # shellcheck source=/dev/null
     . /etc/os-release
     OS_ID="${ID:-unknown}"
     OS_LIKE="${ID_LIKE:-}"
@@ -26,254 +35,109 @@ else
     OS_LIKE=""
 fi
 
-# ==============================================================
-# 1. INSTALL SYSTEM PACKAGES
-# ==============================================================
-
-echo -e "${CYAN}[➜] Mengemas kini pakej sistem, DNS utils, OpenSSL, tmux & vnStat...${NC}"
-
-if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" || "$OS_LIKE" == *"debian"* ]]; then
+say "${CYAN}[➜] Menyediakan kebergantungan sistem...${NC}"
+if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" || "$OS_LIKE" == *debian* ]]; then
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y \
-        curl wget jq gawk dnsutils bind9-host openssl \
-        vnstat bc procps ca-certificates tzdata tmux
-
-elif [[ "$OS_ID" == "rocky" || "$OS_ID" == "almalinux" || "$OS_ID" == "centos" || "$OS_ID" == "rhel" || "$OS_LIKE" == *"rhel"* ]]; then
-    dnf install -y epel-release
-    dnf install -y \
-        curl wget jq gawk bind-utils openssl vnstat \
-        bc procps-ng ca-certificates tzdata tmux
+    apt-get update -y || fail "apt-get update gagal."
+    apt-get install -y curl wget jq gawk dnsutils bind9-host openssl vnstat bc procps \
+        ca-certificates tzdata tmux figlet || fail "Gagal memasang pakej yang diperlukan."
+elif [[ "$OS_ID" == "rocky" || "$OS_ID" == "almalinux" || "$OS_ID" == "centos" || "$OS_ID" == "rhel" || "$OS_LIKE" == *rhel* ]]; then
+    dnf install -y epel-release || true
+    dnf install -y curl wget jq gawk bind-utils openssl vnstat bc procps-ng \
+        ca-certificates tzdata tmux figlet || fail "Gagal memasang pakej yang diperlukan."
 else
-    echo -e "${YELLOW}[!] OS tidak dikenali. Sila semak keserasian pakej secara manual.${NC}"
+    say "${YELLOW}[!] Distro tidak dikenali (${OS_ID}); cuba teruskan dengan pakej sedia ada.${NC}"
 fi
 
-# ==============================================================
-# 2. TIMEZONE
-# ==============================================================
-
-echo -e "${CYAN}[➜] Menetapkan zon waktu Malaysia (Asia/Kuala_Lumpur)...${NC}"
-
+say "${CYAN}[➜] Menetapkan zon waktu Malaysia...${NC}"
 timedatectl set-timezone Asia/Kuala_Lumpur 2>/dev/null \
     || ln -sf /usr/share/zoneinfo/Asia/Kuala_Lumpur /etc/localtime
 
-# ==============================================================
-# 3. ENABLE VNSTAT
-# ==============================================================
+mkdir -p "$INSTALL_DIR" "$MENU_DIR" "$MORE_DIR" || fail "Gagal mencipta direktori pemasangan."
 
-echo -e "${CYAN}[➜] Mengaktifkan pemantauan trafik vnStat...${NC}"
+# Download to a temporary file, syntax-check it, then replace the installed file.
+download_script() {
+    local rel="$1" dest="$2" tmp http_code
+    tmp="${dest}.download.$$"
+    rm -f "$tmp"
+    say "${WHITE}[➜] Memuat turun ${rel}...${NC}"
+    http_code=$(curl -sS -L --connect-timeout 10 --max-time 90 --retry 2 \
+        -w '%{http_code}' "${REPO_RAW}/${rel}" -o "$tmp") || {
+        rm -f "$tmp"
+        fail "Tidak dapat memuat turun ${rel}."
+    }
+    if [ "$http_code" != "200" ] || [ ! -s "$tmp" ]; then
+        rm -f "$tmp"
+        fail "Fail ${rel} tidak tersedia (HTTP ${http_code})."
+    fi
+    sed -i 's/\r$//' "$tmp"
+    if ! bash -n "$tmp"; then
+        rm -f "$tmp"
+        fail "Sintaks Bash tidak sah dalam ${rel}; fail sedia ada tidak disentuh."
+    fi
+    chmod 0755 "$tmp"
+    mv -f "$tmp" "$dest" || fail "Gagal memasang ${rel}."
+    say "${GREEN}[✔] ${rel} dikemas kini.${NC}"
+}
 
+say "${CYAN}[➜] Mengemas kini fail utama...${NC}"
+for file in "core.sh" "menu.sh"; do
+    download_script "$file" "${INSTALL_DIR}/${file}"
+done
+
+say "${CYAN}[➜] Mengemas kini modul menu...${NC}"
+MENU_MODULES=(
+    "ipclone.sh" "twinip.sh" "country.sh" "postcode.sh"
+    "domainip.sh" "ipdomain.sh" "bughunter.sh" "dnsipv6.sh"
+    "ipv6to4.sh" "themes.sh" "history.sh"
+)
+for mod in "${MENU_MODULES[@]}"; do
+    download_script "menu/${mod}" "${MENU_DIR}/${mod}"
+done
+
+# Optional ANTICK script: refresh the local copy but do not reinstall it on every update.
+ANTICK_TMP="/tmp/cf_antick.sh.$$"
+http_code=$(curl -sS -L --connect-timeout 10 --max-time 90 --retry 1 \
+    -w '%{http_code}' "${REPO_RAW}/more/antick.sh" -o "$ANTICK_TMP" 2>/dev/null || true)
+if [ "$http_code" = "200" ] && [ -s "$ANTICK_TMP" ] && bash -n "$ANTICK_TMP"; then
+    sed -i 's/\r$//' "$ANTICK_TMP"
+    install -m 0755 "$ANTICK_TMP" "${MORE_DIR}/antick.sh"
+    say "${GREEN}[✔] more/antick.sh disalin (tidak menjalankan installer ANTICK secara automatik).${NC}"
+else
+    say "${YELLOW}[i] more/antick.sh tidak dikemas kini; modul menu utama tetap diteruskan.${NC}"
+fi
+rm -f "$ANTICK_TMP"
+
+say "${CYAN}[➜] Mengaktifkan vnStat dan arahan menu...${NC}"
 if command -v vnstat >/dev/null 2>&1; then
     DEFAULT_IFACE=$(ip route show default 2>/dev/null | awk 'NR==1 {print $5}')
-
     if [ -n "$DEFAULT_IFACE" ]; then
         vnstat --add -i "$DEFAULT_IFACE" >/dev/null 2>&1 || true
     fi
-
     systemctl enable vnstat >/dev/null 2>&1 || true
     systemctl restart vnstat >/dev/null 2>&1 || true
 fi
+ln -sfn "${INSTALL_DIR}/menu.sh" /usr/bin/menu
+ln -sfn "${INSTALL_DIR}/menu.sh" /usr/local/bin/menu
+chmod 0755 "${INSTALL_DIR}/menu.sh" /usr/bin/menu 2>/dev/null || true
 
-# ==============================================================
-# 4. PREPARE INSTALLATION DIRECTORIES
-# ==============================================================
-
-echo -e "${CYAN}[➜] Menyediakan direktori CLOUDFAIL...${NC}"
-
-mkdir -p "$INSTALL_DIR" "$MENU_DIR" "$MORE_DIR" || {
-    echo -e "${RED}[✘] Gagal menyediakan direktori pemasangan.${NC}"
-    exit 1
-}
-
-# ==============================================================
-# 5. DOWNLOAD MAIN FILES
-# ==============================================================
-
-ROOT_FILES=("menu.sh" "core.sh")
-
-for rfile in "${ROOT_FILES[@]}"; do
-    echo -e "${WHITE}[➜] Memuat turun ${YELLOW}${rfile}${NC}"
-
-    if curl -fsSL --retry 2 \
-        "${REPO_RAW}/${rfile}" \
-        -o "${INSTALL_DIR}/${rfile}"; then
-
-        sed -i 's/\r$//' "${INSTALL_DIR}/${rfile}"
-        chmod +x "${INSTALL_DIR}/${rfile}"
-        echo -e "${GREEN}[✔] ${rfile} berjaya dimuat turun.${NC}"
-    else
-        echo -e "${RED}[✘] Gagal memuat turun ${rfile}.${NC}"
-        exit 1
-    fi
-done
-
-# ==============================================================
-# 6. DOWNLOAD MENU MODULES
-# ==============================================================
-
-MENU_MODULES=(
-    "ipclone.sh"
-    "twinip.sh"
-    "country.sh"
-    "postcode.sh"
-    "domainip.sh"
-    "ipdomain.sh"
-    "bughunter.sh"
-    "dnsipv6.sh"
-    "ipv6to4.sh"
-    "history.sh"
-)
-
-for mod in "${MENU_MODULES[@]}"; do
-    echo -e "${WHITE}[➜] Memuat turun ${YELLOW}menu/${mod}${NC}"
-
-    http_code=$(curl -s -L --max-time 30 \
-        -w "%{http_code}" \
-        "${REPO_RAW}/menu/${mod}" \
-        -o "${MENU_DIR}/${mod}")
-
-    if [ "$http_code" != "200" ]; then
-        mod_no_ext="${mod%.sh}"
-
-        if ! curl -fsSL --retry 2 \
-            "${REPO_RAW}/menu/${mod_no_ext}" \
-            -o "${MENU_DIR}/${mod}"; then
-
-            echo -e "${YELLOW}[!] Modul ${mod} tidak dapat dimuat turun.${NC}"
-            rm -f "${MENU_DIR:?}/${mod}"
-            continue
-        fi
-    fi
-
-    sed -i 's/\r$//' "${MENU_DIR}/${mod}"
-    chmod +x "${MENU_DIR}/${mod}"
-    echo -e "${GREEN}[✔] Modul ${mod} selesai.${NC}"
-done
-
-# ==============================================================
-# 7. INSTALL EJAYWATT ANTICK v2.0
-# ==============================================================
-
-ANTICK_TMP="/tmp/cf_antick.sh"
-
-echo
-echo -e "${CYAN}╭──────────────────────────────────────────────╮${NC}"
-echo -e "${CYAN}│       EJAYWATT ANTICK v2.0 INSTALLER         │${NC}"
-echo -e "${CYAN}╰──────────────────────────────────────────────╯${NC}"
-
-echo -e "${CYAN}[➜] Memuat turun more/antick.sh dari GitHub...${NC}"
-
-http_code_antick=$(curl -s -L --connect-timeout 10 --max-time 180 \
-    -w "%{http_code}" \
-    "${REPO_RAW}/more/antick.sh" \
-    -o "$ANTICK_TMP")
-
-if [ "$http_code_antick" != "200" ]; then
-    # Fallback jika fail dinamakan tanpa .sh (more/antick)
-    http_code_antick=$(curl -s -L --connect-timeout 10 --max-time 180 \
-        -w "%{http_code}" \
-        "${REPO_RAW}/more/antick" \
-        -o "$ANTICK_TMP")
-fi
-
-if [ "$http_code_antick" == "200" ] && [ -s "$ANTICK_TMP" ]; then
-    # Bersihkan format CRLF Windows terlebih dahulu sebelum semakan sintaks
-    sed -i 's/\r$//' "$ANTICK_TMP"
-    chmod +x "$ANTICK_TMP"
-    
-    # Simpan salinan ke dalam folder pemasangan more/
-    cp -f "$ANTICK_TMP" "${MORE_DIR}/antick.sh"
-    chmod +x "${MORE_DIR}/antick.sh"
-
-    if bash -n "$ANTICK_TMP"; then
-        echo -e "${CYAN}[➜] Menjalankan pemasangan ANTICK...${NC}"
-
-        if bash "$ANTICK_TMP"; then
-            echo -e "${GREEN}[✔] EJAYWATT ANTICK berjaya dipasang.${NC}"
-        else
-            echo -e "${YELLOW}[!] Pemasangan ANTICK memulangkan ralat semasa dijalankan.${NC}"
-            echo -e "${YELLOW}[!] CLOUDFAIL akan meneruskan pemasangan.${NC}"
-        fi
-    else
-        echo -e "${RED}[✘] Semakan sintaks (bash -n) gagal pada more/antick.sh!${NC}"
-        echo -e "${YELLOW}[!] Sila semak kandungan kod di dalam more/antick.sh anda.${NC}"
-    fi
-else
-    echo -e "${RED}[✘] Gagal memuat turun more/antick.sh (HTTP ${http_code_antick}).${NC}"
-    echo -e "${YELLOW}[!] Pastikan fail wujud di: https://github.com/ejaywattapak/cloudfail1003/blob/main/more/antick.sh${NC}"
-fi
-
-rm -f "$ANTICK_TMP"
-
-# ==============================================================
-# 8. CREATE MENU COMMAND
-# ==============================================================
-
-echo
-echo -e "${CYAN}[➜] Menyediakan arahan menu...${NC}"
-
-ln -sf "${INSTALL_DIR}/menu.sh" /usr/bin/menu
-ln -sf "${INSTALL_DIR}/menu.sh" /usr/local/bin/menu
-
-chmod +x /usr/bin/menu
-
-# ==============================================================
-# 9. AUTO-LOAD MENU ON INTERACTIVE LOGIN
-# ==============================================================
-
-echo -e "${CYAN}[➜] Mengaktifkan menu automatik ketika login...${NC}"
-
-cat <<'AUTOPOP' > /etc/profile.d/ejaywatt_cloudfail.sh
-if [ -t 0 ] && [[ $- == *i* ]] && [ -z "$CF_MENU_LOADED" ]; then
+# Preserve the existing automatic-menu behaviour while preventing duplicate launches.
+cat > /etc/profile.d/ejaywatt_cloudfail.sh <<'AUTOPOP'
+if [ -t 0 ] && [[ $- == *i* ]] && [ -z "${CF_MENU_LOADED:-}" ]; then
     export CF_MENU_LOADED=1
     /usr/bin/menu
 fi
 AUTOPOP
-
-chmod +x /etc/profile.d/ejaywatt_cloudfail.sh
-
-for rcfile in /root/.bashrc /root/.bash_profile /root/.profile; do
-    if [ -f "$rcfile" ]; then
-        sed -i '/CF_MENU_LOADED/d; /\/usr\/bin\/menu/d' "$rcfile" 2>/dev/null
-    fi
-done
-
-if ! grep -q 'CF_MENU_LOADED=1 && /usr/bin/menu' /root/.bashrc 2>/dev/null; then
-    echo '[ -t 0 ] && [ -z "$CF_MENU_LOADED" ] && export CF_MENU_LOADED=1 && /usr/bin/menu' >> /root/.bashrc
+chmod 0644 /etc/profile.d/ejaywatt_cloudfail.sh
+if [ -f /root/.bashrc ]; then
+    sed -i '/CF_MENU_LOADED/d; /\/usr\/bin\/menu/d' /root/.bashrc 2>/dev/null || true
+    printf '\n%s\n' '[ -t 0 ] && [ -z "${CF_MENU_LOADED:-}" ] && export CF_MENU_LOADED=1 && /usr/bin/menu' >> /root/.bashrc
 fi
 
-# ==============================================================
-# 10. CLEANUP
-# ==============================================================
-
-rm -f /tmp/cf_setup.sh
-rm -f "$0" /root/installer.sh ./installer.sh 2>/dev/null
-
-# ==============================================================
-# 11. FINISH
-# ==============================================================
-
-echo
-echo -e "${GREEN}╭──────────────────────────────────────────────────────────────╮${NC}"
-echo -e "${GREEN}│             EJAYWATT CLOUDFAIL INSTALLATION                   │${NC}"
-echo -e "${GREEN}│                                                              │${NC}"
-echo -e "${GREEN}│   CLOUDFAIL setup selesai.                                   │${NC}"
-echo -e "${GREEN}│   ANTICK telah dipasang secara automatik.                    │${NC}"
-echo -e "${GREEN}╰──────────────────────────────────────────────────────────────╯${NC}"
-echo
-
-echo -e "${WHITE}Arahan ANTICK selepas pemasangan:${NC}"
-echo -e "  ${CYAN}antick${NC}             - Buka sesi tmux utama"
-echo -e "  ${CYAN}antick mytask${NC}      - Buka sesi tmux bernama mytask"
-echo -e "  ${CYAN}tmux ls${NC}            - Semak sesi tmux"
-echo
-
-echo -e "${YELLOW}[!] VPS akan reboot dalam 5 saat, mengikut tingkah laku setup asal.${NC}"
-
-for i in {5..1}; do
-    printf "\r${YELLOW}[⏳] Rebooting VPS dalam masa %d saat...${NC}" "$i"
-    sleep 1
-done
-
-echo
-reboot
+say ""
+say "${GREEN}╭──────────────────────────────────────────────────────────────╮${NC}"
+say "${GREEN}│          CLOUDFAIL v13.4 — INSTALL / UPDATE SELESAI           │${NC}"
+say "${GREEN}╰──────────────────────────────────────────────────────────────╯${NC}"
+say "${WHITE}Tema disimpan dalam: ${THEME_CONFIG_FILE:-~/.cloudfail_theme.conf}${NC}"
+say "${WHITE}Buka menu dengan arahan: ${CYAN}menu${NC}"
+say "${YELLOW}[i] VPS tidak akan reboot secara automatik.${NC}"
