@@ -1,11 +1,11 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL v13.4 - MAIN MENU WITH THEMES
+# EJAYWATT CLOUDFAIL v13.5 - MAIN MENU (3D ASCII + THEMES)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
-# ==============================================================
+# ============================================================== 
 
 INSTALL_DIR="/usr/local/share/cloudfail1003"
-if [ ! -f "${INSTALL_DIR}/core.sh" ]; then
+if [ ! -r "${INSTALL_DIR}/core.sh" ]; then
     SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
     INSTALL_DIR="${SCRIPT_DIR:-.}"
 fi
@@ -61,47 +61,78 @@ get_system_stats() {
     fi
 }
 
+# Print a box row with exactly 54 display characters between borders.
+# Keeping the number column fixed prevents [10] and [11] from shifting the box.
+menu_row() {
+    local number="$1" label="$2" description="$3"
+    printf '%b│%b  %b%-4s%b  %b%-21.21s%b  %b%-23.23s%b%b│%b\n' \
+        "$CYAN" "$NC" "$YELLOW" "[$number]" "$NC" \
+        "$WHITE" "$label" "$NC" "$GRAY" "$description" "$NC" "$CYAN" "$NC"
+}
+
+menu_title_row() {
+    local title="${1:-MAIN MENU}"
+    local left=$(( (54 - ${#title}) / 2 ))
+    local right=$(( 54 - ${#title} - left ))
+    printf '%b│%b%*s%s%*s%b│%b\n' "$CYAN" "$NC" "$left" "" "$title" "$right" "" "$CYAN" "$NC"
+}
+
 show_main_banner() {
     clear
     get_system_stats
     printf '%b' "$BANNER_COLOR"
+    # Keep the original 3D ASCII font (FIGlet ANSI Shadow); only its text is editable.
     if command -v figlet >/dev/null 2>&1; then
-        if ! figlet -w 90 -f "ANSI Shadow" "$BANNER_TEXT" 2>/dev/null; then
-            printf '  %s\n' "$BANNER_TEXT"
+        if ! figlet -w 100 -f "ANSI Shadow" "${BANNER_TEXT:-EJAYWATT CLOUDFAIL}" 2>/dev/null; then
+            printf '  %s\n' "${BANNER_TEXT:-EJAYWATT CLOUDFAIL}"
         fi
     else
-        printf '  %s\n' "$BANNER_TEXT"
+        # Do not silently replace the original banner with a different font.
+        cat <<'ASCII'
+  ███████╗     ██╗ █████╗ ██╗   ██╗██╗    ██╗ █████╗ ████████╗████████╗
+  ██╔════╝     ██║██╔══██╗╚██╗ ██╔╝██║    ██║██╔══██╗╚══██╔══╝╚══██╔══╝
+  █████╗       ██║███████║ ╚████╔╝ ██║ █╗ ██║███████║   ██║      ██║   
+  ██╔══╝  ██   ██║██╔══██║  ╚██╔╝  ██║███╗██║██╔══██║   ██║      ██║   
+  ███████╗╚█████╔╝██║  ██║   ██║   ╚███╔███╔╝██║  ██║   ██║      ██║   
+  ╚══════╝ ╚════╝ ╚═╝  ╚═╝   ╚═╝    ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝      ╚═╝   
+   ██████╗██╗      ██████╗ ██╗   ██╗██████╗ ███████╗ █████╗ ██╗██╗     
+  ██╔════╝██║     ██╔═══██╗██║   ██║██╔══██╗██╔════╝██╔══██╗██║██║     
+  ██║     ██║     ██║   ██║██║   ██║██║  ██║█████╗  ███████║██║██║     
+  ██║     ██║     ██║   ██║██║   ██║██║  ██║██╔══╝  ██╔══██║██║██║     
+  ╚██████╗███████╗╚██████╔╝╚██████╔╝██████╔╝██║     ██║  ██║██║███████╗
+   ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝  ╚═╝╚═╝╚══════╝
+ASCII
     fi
     printf '%b\n' "$NC"
 
-    echo -e "${PURPLE}╭──────────────────────────────────────────────────────╮${NC}"
-    printf "${PURPLE}│${NC} ${WHITE}Time (KL) :${NC} ${YELLOW}%-40s${NC} ${PURPLE}│${NC}\n" "${KL_TIME} (MYT)"
-    printf "${PURPLE}│${NC} ${WHITE}CPU / RAM :${NC} ${CYAN}%-40s${NC} ${PURPLE}│${NC}\n" "Load: ${CPU_LOAD} | RAM: ${MEM_USED}/${MEM_TOTAL}MB (${MEM_PCT}%)"
-    printf "${PURPLE}│${NC} ${WHITE}vnStat Day:${NC} ${GREEN}%-40s${NC} ${PURPLE}│${NC}\n" "Today: ${TODAY_TOT} (RX:${TODAY_RX} / TX:${TODAY_TX})"
-    printf "${PURPLE}│${NC} ${WHITE}vnStat Mo :${NC} ${GREEN}%-40s${NC} ${PURPLE}│${NC}\n" "Monthly Total: ${MONTH_TOT}"
-    echo -e "${PURPLE}╰──────────────────────────────────────────────────────╯${NC}"
+    printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$PURPLE" "$NC"
+    printf '%b│%b %b%-11s%b %b%-39.39s%b %b│%b\n' "$PURPLE" "$NC" "$WHITE" "Time (KL) :" "$NC" "$YELLOW" "${KL_TIME} (MYT)" "$NC" "$PURPLE" "$NC"
+    printf '%b│%b %b%-11s%b %b%-39.39s%b %b│%b\n' "$PURPLE" "$NC" "$WHITE" "CPU / RAM :" "$NC" "$CYAN" "Load: ${CPU_LOAD} | RAM: ${MEM_USED}/${MEM_TOTAL}MB (${MEM_PCT}%)" "$NC" "$PURPLE" "$NC"
+    printf '%b│%b %b%-11s%b %b%-39.39s%b %b│%b\n' "$PURPLE" "$NC" "$WHITE" "vnStat Day:" "$NC" "$GREEN" "Today: ${TODAY_TOT} (RX:${TODAY_RX} / TX:${TODAY_TX})" "$NC" "$PURPLE" "$NC"
+    printf '%b│%b %b%-11s%b %b%-39.39s%b %b│%b\n' "$PURPLE" "$NC" "$WHITE" "vnStat Mo :" "$NC" "$GREEN" "Monthly Total: ${MONTH_TOT}" "$NC" "$PURPLE" "$NC"
+    printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$PURPLE" "$NC"
 }
 
 while true; do
     show_main_banner
-    echo -e "${CYAN}╭──────────────────────────────────────────────────────╮${NC}"
-    echo -e "${CYAN}│${NC}                      ${WHITE}MAIN MENU${NC}                       ${CYAN}│${NC}"
-    echo -e "${CYAN}├──────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[1]${NC}  ${WHITE}IP Clone Scanner${NC}      ${GRAY}(Same & Alt Range 1003)  ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[2]${NC}  ${WHITE}Twin IP Scanner${NC}       ${GRAY}(Cari Pasangan IP Kembar)${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[3]${NC}  ${WHITE}Country & City Scan${NC}   ${GRAY}(Cari IP Ikut Lokasi)    ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[4]${NC}  ${WHITE}Postcode IP Scanner${NC}   ${GRAY}(Cari IP Ikut Poskod)    ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[5]${NC}  ${WHITE}Reverse IP to Domain${NC}  ${GRAY}(Input IP -> Cari Domain)${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[6]${NC}  ${WHITE}Domain to IP Lookup${NC}   ${GRAY}(Input Domain -> Cari IP)${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[7]${NC}  ${WHITE}Bug Hunter Verified${NC}   ${GRAY}(Senarai Bug + Host Asal)${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[8]${NC}  ${WHITE}Search DNS IPv6${NC}       ${GRAY}(Live AAAA [2606:4700..])${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[9]${NC}  ${WHITE}Search IPv6 to IPv4${NC}   ${GRAY}(Live Resolve IPv6 -> v4)${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[10]${NC} ${WHITE}Themes${NC}                ${GRAY}(Banner & Menu Style)     ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${YELLOW}[11]${NC} ${WHITE}Search History${NC}        ${GRAY}(Papar Rekod Carian)     ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}  ${RED}[0]${NC}  ${WHITE}Exit Terminal${NC}         ${GRAY}(Keluar dari Menu)       ${CYAN}│${NC}"
-    echo -e "${CYAN}╰──────────────────────────────────────────────────────╯${NC}"
-    echo -e "${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}\n"
-    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1-11 / 0=Exit)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
+    printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$CYAN" "$NC"
+    menu_title_row "MAIN MENU"
+    printf '%b├──────────────────────────────────────────────────────┤%b\n' "$CYAN" "$NC"
+    menu_row 1  "IP Clone Scanner"       "Same & Alt Range 1003"
+    menu_row 2  "Twin IP Scanner"        "Cari Pasangan IP Kembar"
+    menu_row 3  "Country & City Scan"    "Cari IP Ikut Lokasi"
+    menu_row 4  "Postcode IP Scanner"    "Cari IP Ikut Poskod"
+    menu_row 5  "Reverse IP to Domain"   "Input IP -> Cari Domain"
+    menu_row 6  "Domain to IP Lookup"    "Input Domain -> Cari IP"
+    menu_row 7  "Bug Hunter Verified"    "Senarai Bug + Host Asal"
+    menu_row 8  "Search DNS IPv6"        "Live AAAA [2606:4700..]"
+    menu_row 9  "Search IPv6 to IPv4"    "Live Resolve IPv6 -> v4"
+    menu_row 10 "Themes"                "Banner Text & Menu Style"
+    menu_row 11 "Search History"        "Papar Rekod Carian"
+    menu_row 0  "Exit Terminal"          "Keluar dari Menu"
+    printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$CYAN" "$NC"
+    printf '%b  if found bugs contact telegram @ejwtpkvpn%b\n\n' "$PURPLE" "$NC"
+    printf '%b╭─[%bPilih Menu (1-11 / 0=Exit)%b]\n%b╰─➤ %b' "$CYAN" "$WHITE" "$CYAN" "$CYAN" "$YELLOW"
     read -r choice
     printf '%b' "$NC"
 
