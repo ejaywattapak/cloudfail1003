@@ -42,7 +42,7 @@ show_banner() {
     fi
     echo -e "${NC}"
     echo -e "${PURPLE}╭──────────────────────────────────────────────────────╮${NC}"
-    echo -e "${PURPLE}│${NC}   ${WHITE}⚡ OFFICIAL INSTALLER v13.5 — THEMES READY ⚡${NC}    ${PURPLE}│${NC}"
+    echo -e "${PURPLE}│${NC}   ${WHITE}⚡ OFFICIAL INSTALLER v13.5 ⚡${NC}    ${PURPLE}│${NC}"
     echo -e "${PURPLE}╰──────────────────────────────────────────────────────╯${NC}"
 }
 
