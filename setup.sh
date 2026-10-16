@@ -15,6 +15,7 @@ NC='\033[0m'
 REPO_RAW="https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main"
 INSTALL_DIR="/usr/local/share/cloudfail1003"
 MENU_DIR="${INSTALL_DIR}/menu"
+MORE_DIR="${INSTALL_DIR}/more"
 
 if [ -f /etc/os-release ]; then
     . /etc/os-release
@@ -29,20 +30,20 @@ fi
 # 1. INSTALL SYSTEM PACKAGES
 # ==============================================================
 
-echo -e "${CYAN}[➜] Mengemas kini pakej sistem, DNS utils, OpenSSL & vnStat...${NC}"
+echo -e "${CYAN}[➜] Mengemas kini pakej sistem, DNS utils, OpenSSL, tmux & vnStat...${NC}"
 
 if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" || "$OS_LIKE" == *"debian"* ]]; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
     apt-get install -y \
         curl wget jq gawk dnsutils bind9-host openssl \
-        vnstat bc procps ca-certificates tzdata
+        vnstat bc procps ca-certificates tzdata tmux
 
 elif [[ "$OS_ID" == "rocky" || "$OS_ID" == "almalinux" || "$OS_ID" == "centos" || "$OS_ID" == "rhel" || "$OS_LIKE" == *"rhel"* ]]; then
     dnf install -y epel-release
     dnf install -y \
         curl wget jq gawk bind-utils openssl vnstat \
-        bc procps-ng ca-certificates tzdata
+        bc procps-ng ca-certificates tzdata tmux
 else
     echo -e "${YELLOW}[!] OS tidak dikenali. Sila semak keserasian pakej secara manual.${NC}"
 fi
@@ -79,7 +80,7 @@ fi
 
 echo -e "${CYAN}[➜] Menyediakan direktori CLOUDFAIL...${NC}"
 
-mkdir -p "$INSTALL_DIR" "$MENU_DIR" || {
+mkdir -p "$INSTALL_DIR" "$MENU_DIR" "$MORE_DIR" || {
     echo -e "${RED}[✘] Gagal menyediakan direktori pemasangan.${NC}"
     exit 1
 }
@@ -162,25 +163,44 @@ echo -e "${CYAN}╰────────────────────�
 
 echo -e "${CYAN}[➜] Memuat turun more/antick.sh dari GitHub...${NC}"
 
-if curl -fsSL --retry 2 --connect-timeout 10 --max-time 180 \
+http_code_antick=$(curl -s -L --connect-timeout 10 --max-time 180 \
+    -w "%{http_code}" \
     "${REPO_RAW}/more/antick.sh" \
-    -o "$ANTICK_TMP" \
-    && [ -s "$ANTICK_TMP" ] \
-    && bash -n "$ANTICK_TMP"; then
+    -o "$ANTICK_TMP")
 
+if [ "$http_code_antick" != "200" ]; then
+    # Fallback jika fail dinamakan tanpa .sh (more/antick)
+    http_code_antick=$(curl -s -L --connect-timeout 10 --max-time 180 \
+        -w "%{http_code}" \
+        "${REPO_RAW}/more/antick" \
+        -o "$ANTICK_TMP")
+fi
+
+if [ "$http_code_antick" == "200" ] && [ -s "$ANTICK_TMP" ]; then
+    # Bersihkan format CRLF Windows terlebih dahulu sebelum semakan sintaks
+    sed -i 's/\r$//' "$ANTICK_TMP"
     chmod +x "$ANTICK_TMP"
+    
+    # Simpan salinan ke dalam folder pemasangan more/
+    cp -f "$ANTICK_TMP" "${MORE_DIR}/antick.sh"
+    chmod +x "${MORE_DIR}/antick.sh"
 
-    echo -e "${CYAN}[➜] Menjalankan pemasangan ANTICK...${NC}"
+    if bash -n "$ANTICK_TMP"; then
+        echo -e "${CYAN}[➜] Menjalankan pemasangan ANTICK...${NC}"
 
-    if bash "$ANTICK_TMP"; then
-        echo -e "${GREEN}[✔] EJAYWATT ANTICK berjaya dipasang.${NC}"
+        if bash "$ANTICK_TMP"; then
+            echo -e "${GREEN}[✔] EJAYWATT ANTICK berjaya dipasang.${NC}"
+        else
+            echo -e "${YELLOW}[!] Pemasangan ANTICK memulangkan ralat semasa dijalankan.${NC}"
+            echo -e "${YELLOW}[!] CLOUDFAIL akan meneruskan pemasangan.${NC}"
+        fi
     else
-        echo -e "${YELLOW}[!] Pemasangan ANTICK tidak berjaya.${NC}"
-        echo -e "${YELLOW}[!] CLOUDFAIL akan meneruskan pemasangan.${NC}"
+        echo -e "${RED}[✘] Semakan sintaks (bash -n) gagal pada more/antick.sh!${NC}"
+        echo -e "${YELLOW}[!] Sila semak kandungan kod di dalam more/antick.sh anda.${NC}"
     fi
 else
-    echo -e "${YELLOW}[!] Fail ANTICK gagal dimuat turun atau semakan sintaks gagal.${NC}"
-    echo -e "${YELLOW}[!] Pastikan more/antick.sh wujud dalam branch main GitHub.${NC}"
+    echo -e "${RED}[✘] Gagal memuat turun more/antick.sh (HTTP ${http_code_antick}).${NC}"
+    echo -e "${YELLOW}[!] Pastikan fail wujud di: https://github.com/ejaywattapak/cloudfail1003/blob/main/more/antick.sh${NC}"
 fi
 
 rm -f "$ANTICK_TMP"
@@ -238,7 +258,7 @@ echo -e "${GREEN}╭────────────────────
 echo -e "${GREEN}│             EJAYWATT CLOUDFAIL INSTALLATION                   │${NC}"
 echo -e "${GREEN}│                                                              │${NC}"
 echo -e "${GREEN}│   CLOUDFAIL setup selesai.                                   │${NC}"
-echo -e "${GREEN}│   ANTICK telah dicuba secara automatik.                      │${NC}"
+echo -e "${GREEN}│   ANTICK telah dipasang secara automatik.                    │${NC}"
 echo -e "${GREEN}╰──────────────────────────────────────────────────────────────╯${NC}"
 echo
 
