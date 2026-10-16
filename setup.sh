@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL v13.4 - INSTALL / UPDATE
-# Includes global Themes support. Does not reboot automatically.
+# EJAYWATT CLOUDFAIL v13.5 - INSTALL / UPDATE
+# Safe download, syntax validation and timestamped backups.
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ============================================================== 
 set -o pipefail
@@ -55,33 +55,39 @@ timedatectl set-timezone Asia/Kuala_Lumpur 2>/dev/null \
 
 mkdir -p "$INSTALL_DIR" "$MENU_DIR" "$MORE_DIR" || fail "Gagal mencipta direktori pemasangan."
 
-# Download to a temporary file, syntax-check it, then replace the installed file.
+# Download, check HTTP 200, validate Bash syntax, back up current copy,
+# and then replace the file. Existing working files are preserved on error.
 download_script() {
-    local rel="$1" dest="$2" tmp http_code
+    local rel="$1" dest="$2" tmp http_code backup stamp
     tmp="${dest}.download.$$"
     rm -f "$tmp"
     say "${WHITE}[➜] Memuat turun ${rel}...${NC}"
     http_code=$(curl -sS -L --connect-timeout 10 --max-time 90 --retry 2 \
-        -w '%{http_code}' "${REPO_RAW}/${rel}" -o "$tmp") || {
-        rm -f "$tmp"
-        fail "Tidak dapat memuat turun ${rel}."
-    }
+        -w '%{http_code}' "${REPO_RAW}/${rel}" -o "$tmp" 2>/dev/null) || http_code="000"
     if [ "$http_code" != "200" ] || [ ! -s "$tmp" ]; then
         rm -f "$tmp"
-        fail "Fail ${rel} tidak tersedia (HTTP ${http_code})."
+        fail "Fail ${rel} tidak tersedia atau gagal dimuat turun (HTTP ${http_code}); salinan lama dikekalkan."
     fi
     sed -i 's/\r$//' "$tmp"
     if ! bash -n "$tmp"; then
         rm -f "$tmp"
-        fail "Sintaks Bash tidak sah dalam ${rel}; fail sedia ada tidak disentuh."
+        fail "Sintaks Bash tidak sah dalam ${rel}; salinan lama tidak disentuh."
+    fi
+    if [ -f "$dest" ]; then
+        stamp=$(date +%Y%m%d-%H%M%S)
+        backup="${dest}.bak.${stamp}"
+        cp -a "$dest" "$backup" || {
+            rm -f "$tmp"
+            fail "Tidak dapat membuat backup bagi ${rel}; salinan lama tidak disentuh."
+        }
     fi
     chmod 0755 "$tmp"
     mv -f "$tmp" "$dest" || fail "Gagal memasang ${rel}."
-    say "${GREEN}[✔] ${rel} dikemas kini.${NC}"
+    say "${GREEN}[✔] ${rel} dikemas kini (HTTP 200, Bash OK).${NC}"
 }
 
 say "${CYAN}[➜] Mengemas kini fail utama...${NC}"
-for file in "core.sh" "menu.sh"; do
+for file in "core.sh" "menu.sh" "setup.sh"; do
     download_script "$file" "${INSTALL_DIR}/${file}"
 done
 
@@ -95,18 +101,10 @@ for mod in "${MENU_MODULES[@]}"; do
     download_script "menu/${mod}" "${MENU_DIR}/${mod}"
 done
 
-# Optional ANTICK script: refresh the local copy but do not reinstall it on every update.
-ANTICK_TMP="/tmp/cf_antick.sh.$$"
-http_code=$(curl -sS -L --connect-timeout 10 --max-time 90 --retry 1 \
-    -w '%{http_code}' "${REPO_RAW}/more/antick.sh" -o "$ANTICK_TMP" 2>/dev/null || true)
-if [ "$http_code" = "200" ] && [ -s "$ANTICK_TMP" ] && bash -n "$ANTICK_TMP"; then
-    sed -i 's/\r$//' "$ANTICK_TMP"
-    install -m 0755 "$ANTICK_TMP" "${MORE_DIR}/antick.sh"
-    say "${GREEN}[✔] more/antick.sh disalin (tidak menjalankan installer ANTICK secara automatik).${NC}"
-else
-    say "${YELLOW}[i] more/antick.sh tidak dikemas kini; modul menu utama tetap diteruskan.${NC}"
-fi
-rm -f "$ANTICK_TMP"
+say "${CYAN}[➜] Mengemas kini modul tambahan...${NC}"
+for mod in "antick.sh"; do
+    download_script "more/${mod}" "${MORE_DIR}/${mod}"
+done
 
 say "${CYAN}[➜] Mengaktifkan vnStat dan arahan menu...${NC}"
 if command -v vnstat >/dev/null 2>&1; then
@@ -121,7 +119,7 @@ ln -sfn "${INSTALL_DIR}/menu.sh" /usr/bin/menu
 ln -sfn "${INSTALL_DIR}/menu.sh" /usr/local/bin/menu
 chmod 0755 "${INSTALL_DIR}/menu.sh" /usr/bin/menu 2>/dev/null || true
 
-# Preserve the existing automatic-menu behaviour while preventing duplicate launches.
+# Preserve automatic-menu behavior while preventing duplicate launches.
 cat > /etc/profile.d/ejaywatt_cloudfail.sh <<'AUTOPOP'
 if [ -t 0 ] && [[ $- == *i* ]] && [ -z "${CF_MENU_LOADED:-}" ]; then
     export CF_MENU_LOADED=1
@@ -136,8 +134,9 @@ fi
 
 say ""
 say "${GREEN}╭──────────────────────────────────────────────────────────────╮${NC}"
-say "${GREEN}│          CLOUDFAIL v13.4 — INSTALL / UPDATE SELESAI           │${NC}"
+say "${GREEN}│          CLOUDFAIL v13.5 — INSTALL / UPDATE SELESAI           │${NC}"
 say "${GREEN}╰──────────────────────────────────────────────────────────────╯${NC}"
-say "${WHITE}Tema disimpan dalam: ${THEME_CONFIG_FILE:-~/.cloudfail_theme.conf}${NC}"
+say "${WHITE}Tema disimpan dalam: ${HOME}/.cloudfail_theme.conf${NC}"
 say "${WHITE}Buka menu dengan arahan: ${CYAN}menu${NC}"
 say "${YELLOW}[i] VPS tidak akan reboot secara automatik.${NC}"
+say "${CYAN}[i] Backup lama disimpan sebagai fail .bak.TIMESTAMP.${NC}"

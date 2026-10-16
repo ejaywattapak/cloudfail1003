@@ -1,7 +1,8 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL v13.4 - OFFICIAL INSTALLER / MODULE CHECKER
+# EJAYWATT CLOUDFAIL v13.5 - OFFICIAL INSTALLER / CHECK & UPDATE
 # Repo: https://github.com/ejaywattapak/cloudfail1003
+# Option 2 downloads, validates and updates local files from GitHub.
 # ============================================================== 
 
 RED='\033[1;31m'
@@ -15,9 +16,12 @@ GRAY='\033[0;37m'
 NC='\033[0m'
 
 REPO_RAW="https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main"
-SELF_PATH="$(realpath "$0" 2>/dev/null || echo "$0")"
+SELF_PATH="$(realpath "$0" 2>/dev/null || printf '%s' "$0")"
+INSTALL_DIR="/usr/local/share/cloudfail1003"
+MENU_DIR="${INSTALL_DIR}/menu"
+MORE_DIR="${INSTALL_DIR}/more"
 
-ROOT_FILES=("setup.sh" "menu.sh" "core.sh")
+ROOT_FILES=("setup.sh" "menu.sh" "core.sh" "installer.sh")
 MENU_MODULES=(
     "ipclone.sh" "twinip.sh" "country.sh" "postcode.sh"
     "domainip.sh" "ipdomain.sh" "bughunter.sh" "dnsipv6.sh"
@@ -25,24 +29,33 @@ MENU_MODULES=(
 )
 MORE_MODULES=("antick.sh")
 
+say() { echo -e "$1"; }
+
 show_banner() {
     clear
     echo -e "${CYAN}"
-    if command -v figlet >/dev/null 2>&1; then
-        figlet -w 90 -f "ANSI Shadow" "EJAYWATT CLOUDFAIL" 2>/dev/null || echo "EJAYWATT CLOUDFAIL"
+    if command -v figlet >/dev/null 2>&1 && figlet -w 90 -f "ANSI Shadow" "EJAYWATT CLOUDFAIL" 2>/dev/null; then
+        :
     else
         echo "EJAYWATT CLOUDFAIL"
     fi
     echo -e "${NC}"
     echo -e "${PURPLE}╭──────────────────────────────────────────────────────╮${NC}"
-    echo -e "${PURPLE}│${NC}   ${WHITE}⚡ OFFICIAL INSTALLER v13.4 — THEMES READY ⚡${NC}    ${PURPLE}│${NC}"
+    echo -e "${PURPLE}│${NC}   ${WHITE}⚡ OFFICIAL INSTALLER v13.5 — THEMES READY ⚡${NC}    ${PURPLE}│${NC}"
     echo -e "${PURPLE}╰──────────────────────────────────────────────────────╯${NC}"
+}
+
+require_root() {
+    if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+        say "${RED}[✘] Sila jalankan installer sebagai root (sudo -i dahulu).${NC}"
+        return 1
+    fi
+    return 0
 }
 
 run_installer() {
     show_banner
-    if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-        echo -e "${RED}[✘] Sila jalankan installer sebagai root (sudo -i dahulu).${NC}"
+    if ! require_root; then
         read -rp "Tekan Enter untuk kembali..." _
         return
     fi
@@ -74,38 +87,103 @@ run_installer() {
     read -rp "Tekan Enter untuk kembali ke installer..." _
 }
 
-check_url() {
-    local path="$1" url="${REPO_RAW}/$1" code
-    code=$(curl -sSL --connect-timeout 5 --max-time 15 -o /dev/null -w '%{http_code}' "$url" || true)
-    if [ "$code" = "200" ]; then
-        printf "  ${GREEN}[✔] %-24s HTTP %s${NC}\n" "$path" "$code"
-        return 0
+# Download a shell file to a temporary path, check HTTP and Bash syntax,
+# back up the current copy, then atomically install the new version.
+update_one() {
+    local rel="$1" dest="$2" tmp code backup_dir stamp
+    tmp="${dest}.download.$$"
+    mkdir -p "$(dirname "$dest")" || {
+        say "${RED}[✘] Gagal mencipta folder untuk ${rel}.${NC}"
+        return 1
+    }
+    rm -f "$tmp"
+    code=$(curl -sS -L --connect-timeout 10 --max-time 90 --retry 2 \
+        -w '%{http_code}' "${REPO_RAW}/${rel}" -o "$tmp" 2>/dev/null) || code="000"
+    if [ "$code" != "200" ] || [ ! -s "$tmp" ]; then
+        rm -f "$tmp"
+        printf "  ${RED}[✘] %-24s HTTP %s — fail lama dikekalkan${NC}\n" "$rel" "$code"
+        return 1
     fi
-    printf "  ${RED}[✘] %-24s HTTP %s${NC}\n" "$path" "${code:-000}"
-    return 1
+    sed -i 's/\r$//' "$tmp"
+    if ! bash -n "$tmp"; then
+        rm -f "$tmp"
+        printf "  ${RED}[✘] %-24s Sintaks Bash gagal — fail lama dikekalkan${NC}\n" "$rel"
+        return 1
+    fi
+    if [ -f "$dest" ]; then
+        stamp=$(date +%Y%m%d-%H%M%S)
+        backup_dir="${dest}.bak.${stamp}"
+        if ! cp -a "$dest" "$backup_dir"; then
+            rm -f "$tmp"
+            printf "  ${RED}[✘] %-24s Backup gagal — fail lama dikekalkan${NC}\n" "$rel"
+            return 1
+        fi
+    fi
+    chmod 0755 "$tmp"
+    if ! mv -f "$tmp" "$dest"; then
+        rm -f "$tmp"
+        printf "  ${RED}[✘] %-24s Gagal menggantikan fail${NC}\n" "$rel"
+        return 1
+    fi
+    printf "  ${GREEN}[✔] %-24s HTTP 200 | Bash OK | UPDATED${NC}\n" "$rel"
+    return 0
 }
 
-check_modules() {
+check_and_update_modules() {
     show_banner
-    echo -e "${CYAN}Semakan fail yang akan digunakan oleh setup.sh:${NC}\n"
+    if ! require_root; then
+        read -rp "Tekan Enter untuk kembali..." _
+        return
+    fi
+    mkdir -p "$INSTALL_DIR" "$MENU_DIR" "$MORE_DIR" || {
+        echo -e "${RED}[✘] Tak dapat menyediakan folder pemasangan.${NC}"
+        read -rp "Tekan Enter untuk kembali..." _
+        return
+    }
+
+    echo -e "${CYAN}Semak, muat turun, uji sintaks dan kemas kini fail dari GitHub:${NC}\n"
     local failures=0 file
+
     echo -e "${YELLOW}▸ Fail utama:${NC}"
-    for file in "${ROOT_FILES[@]}"; do
-        check_url "$file" || failures=$((failures + 1))
-    done
+    update_one "setup.sh" "${INSTALL_DIR}/setup.sh" || failures=$((failures + 1))
+    update_one "menu.sh" "${INSTALL_DIR}/menu.sh" || failures=$((failures + 1))
+    update_one "core.sh" "${INSTALL_DIR}/core.sh" || failures=$((failures + 1))
+
     echo -e "\n${YELLOW}▸ Modul menu/:${NC}"
     for file in "${MENU_MODULES[@]}"; do
-        check_url "menu/${file}" || failures=$((failures + 1))
+        update_one "menu/${file}" "${MENU_DIR}/${file}" || failures=$((failures + 1))
     done
+
     echo -e "\n${YELLOW}▸ Modul tambahan more/:${NC}"
     for file in "${MORE_MODULES[@]}"; do
-        check_url "more/${file}" || failures=$((failures + 1))
+        update_one "more/${file}" "${MORE_DIR}/${file}" || failures=$((failures + 1))
     done
+
+    # Update the installer itself only when launched from a real file path.
+    # Avoid trying to replace /dev/fd or process-substitution paths.
+    case "$SELF_PATH" in
+        /dev/*|/proc/*|/run/*|/tmp/*)
+            echo -e "\n${YELLOW}[i] installer.sh berjalan dari lokasi sementara; fail installer tidak diganti.${NC}"
+            ;;
+        *)
+            if [ -f "$SELF_PATH" ] && [ -w "$(dirname "$SELF_PATH")" ]; then
+                update_one "installer.sh" "$SELF_PATH" || failures=$((failures + 1))
+            else
+                echo -e "\n${YELLOW}[i] installer.sh sendiri tidak ditulis (laluan bukan fail tempatan yang boleh diubah).${NC}"
+            fi
+            ;;
+    esac
+
+    ln -sfn "${INSTALL_DIR}/menu.sh" /usr/bin/menu
+    ln -sfn "${INSTALL_DIR}/menu.sh" /usr/local/bin/menu
+    chmod 0755 "${INSTALL_DIR}/menu.sh" /usr/bin/menu 2>/dev/null || true
+
     echo
     if [ "$failures" -eq 0 ]; then
-        echo -e "${GREEN}[✔] Semua fail ditemui. Themes dan Search History ada dalam senarai modul.${NC}"
+        echo -e "${GREEN}[✔] Semua fail berjaya dimuat turun, disemak sintaks dan dikemas kini.${NC}"
+        echo -e "${CYAN}[i] Backup lama disimpan dengan akhiran .bak.TIMESTAMP.${NC}"
     else
-        echo -e "${RED}[!] ${failures} fail tiada atau tidak dapat dicapai. Baiki GitHub dahulu sebelum install/update.${NC}"
+        echo -e "${RED}[!] ${failures} fail gagal dikemas kini. Salinan lama dikekalkan untuk fail yang gagal.${NC}"
     fi
     read -rp "Tekan Enter untuk kembali..." _
 }
@@ -114,15 +192,15 @@ while true; do
     show_banner
     echo -e "${CYAN}╭──────────────────────────────────────────────────────╮${NC}"
     echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Run Installer / Update${NC}  ${GRAY}(Pasang atau kemas kini)${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Check Modules${NC}            ${GRAY}(Semak semua fail GitHub) ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${RED}[0]${NC} ${WHITE}Exit${NC}                     ${GRAY}(Keluar)                 ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Check & Update Files${NC}     ${GRAY}(Semak, baca dan update)   ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${RED}[0]${NC} ${WHITE}Exit${NC}                     ${GRAY}(Keluar)                  ${CYAN}│${NC}"
     echo -e "${CYAN}╰──────────────────────────────────────────────────────╯${NC}"
     echo -ne "${CYAN}╰─➤ Pilih [1/2/0] : ${YELLOW}"
     read -r opt
     printf '%b' "$NC"
     case "$opt" in
         1) run_installer ;;
-        2) check_modules ;;
+        2) check_and_update_modules ;;
         0) exit 0 ;;
         *) echo -e "${RED}[!] Pilihan tidak sah.${NC}"; sleep 1 ;;
     esac
