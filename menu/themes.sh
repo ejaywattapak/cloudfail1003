@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================
-# MODULE 10: THEMES (BANNER TEXT & GLOBAL MENU COLORS)
-# ============================================================== 
+# MODULE: THEMES (KEEP ORIGINAL ANSI SHADOW 3D ASCII FONT)
+# ==============================================================
 
 save_theme_settings() {
     local theme_escaped banner_escaped save_dir
@@ -15,7 +15,7 @@ save_theme_settings() {
         return 1
     fi
 
-    if [ "$EUID" -eq 0 ]; then
+    if [ "${EUID:-$(id -u)}" -eq 0 ]; then
         chmod 0644 "$THEME_CONFIG_FILE"
     else
         chmod 0600 "$THEME_CONFIG_FILE"
@@ -25,10 +25,10 @@ save_theme_settings() {
 change_menu_style() {
     while true; do
         clear
-        echo -e "${CYAN}╭──────────────────────────────────────────────────────╮${NC}"
-        echo -e "${CYAN}│${NC}                 ${WHITE}CHANGE MENU STYLE${NC}                 ${CYAN}│${NC}"
-        echo -e "${CYAN}├──────────────────────────────────────────────────────┤${NC}"
-        printf "  Current style: %s\n\n" "$MENU_THEME"
+        printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$CYAN" "$NC"
+        printf '%b│%b%21s%bCHANGE MENU STYLE%21s%b│%b\n' "$CYAN" "$NC" "" "$WHITE" "" "$CYAN" "$NC"
+        printf '%b├──────────────────────────────────────────────────────┤%b\n' "$CYAN" "$NC"
+        printf '  Current style: %s\n\n' "$MENU_THEME"
         echo -e "  ${YELLOW}[1]${NC} WhatsApp Style  ${GREEN}(hijau)${NC}"
         echo -e "  ${YELLOW}[2]${NC} YouTube Style   ${RED}(merah + putih)${NC}"
         echo -e "  ${YELLOW}[3]${NC} Ocean Style     ${CYAN}(biru + putih)${NC}"
@@ -37,7 +37,7 @@ change_menu_style() {
         echo
         echo -ne "${CYAN}╰─➤ Pilih style [1-4/0]: ${YELLOW}"
         read -r style_choice
-        echo -ne "${NC}"
+        printf '%b' "$NC"
 
         case "$style_choice" in
             1) MENU_THEME="WhatsApp Style" ;;
@@ -51,7 +51,7 @@ change_menu_style() {
         apply_menu_theme
         if save_theme_settings; then
             echo -e "\n${GREEN}[✔] Tema disimpan: ${MENU_THEME}${NC}"
-            echo -e "${CYAN}[i] Banner, menu utama dan submenu mengikuti tema ini.${NC}"
+            echo -e "${CYAN}[i] Menu utama, banner dan submenu ikut tema ini.${NC}"
         else
             echo -e "\n${RED}[!] Tema digunakan untuk sesi ini tetapi gagal disimpan.${NC}"
         fi
@@ -63,32 +63,30 @@ change_menu_style() {
 menu_themes() {
     while true; do
         clear
-        echo -e "${CYAN}╭──────────────────────────────────────────────────────╮${NC}"
-        echo -e "${CYAN}│${NC}                      ${WHITE}THEMES${NC}                       ${CYAN}│${NC}"
-        echo -e "${CYAN}├──────────────────────────────────────────────────────┤${NC}"
-        printf "  Current style : %s\n" "$MENU_THEME"
-        printf "  Banner text   : %s\n\n" "$BANNER_TEXT"
-        echo -e "  ${YELLOW}[1]${NC} Edit Banner Font ${GRAY}(tukar teks, font kekal)${NC}"
+        printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$CYAN" "$NC"
+        printf '%b│%b%24s%bTHEMES%24s%b│%b\n' "$CYAN" "$NC" "" "$WHITE" "" "$CYAN" "$NC"
+        printf '%b├──────────────────────────────────────────────────────┤%b\n' "$CYAN" "$NC"
+        printf '  Current style : %s\n' "$MENU_THEME"
+        printf '  Banner text   : %s\n\n' "$BANNER_TEXT"
+        echo -e "  ${YELLOW}[1]${NC} Edit Banner Text ${GRAY}(kekal font 3D ASCII asal)${NC}"
         echo -e "  ${YELLOW}[2]${NC} Change Menu Style"
         echo -e "  ${RED}[0]${NC} Back to Main Menu"
-        echo -e "${CYAN}╰──────────────────────────────────────────────────────╯${NC}"
+        printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$CYAN" "$NC"
         echo -ne "${CYAN}╰─➤ Pilih [1/2/0]: ${YELLOW}"
         read -r theme_choice
-        echo -ne "${NC}"
+        printf '%b' "$NC"
 
         case "$theme_choice" in
             1)
                 echo
                 echo -ne "${WHITE}Masukkan teks banner baharu (maksimum 32 aksara): ${YELLOW}"
-                read -r new_text
-                echo -ne "${NC}"
-
+                IFS= read -r new_text
+                printf '%b' "$NC"
                 if [ -z "$(printf '%s' "$new_text" | tr -d '[:space:]')" ]; then
                     echo -e "${RED}[!] Teks banner tidak boleh kosong.${NC}"
                     sleep 1.2
                     continue
                 fi
-
                 text_length=$(printf '%s' "$new_text" | wc -m)
                 if [ "$text_length" -gt 32 ]; then
                     echo -e "${RED}[!] Maksimum 32 aksara supaya banner muat pada skrin.${NC}"
@@ -100,23 +98,15 @@ menu_themes() {
                 apply_menu_theme
                 if save_theme_settings; then
                     echo -e "\n${GREEN}[✔] Teks banner berjaya ditukar.${NC}"
-                    echo -e "${CYAN}[i] Jenis font ANSI Shadow dikekalkan.${NC}"
-                    echo -e "${CYAN}[i] Warna banner ikut tema aktif: ${MENU_THEME}${NC}"
+                    echo -e "${CYAN}[i] Font 3D ASCII ANSI Shadow dikekalkan; warna ikut tema aktif.${NC}"
                 else
                     echo -e "\n${RED}[!] Teks ditukar untuk sesi ini tetapi gagal disimpan.${NC}"
                 fi
                 read -rp "Tekan Enter untuk kembali..." _
                 ;;
-            2)
-                change_menu_style
-                ;;
-            0)
-                return
-                ;;
-            *)
-                echo -e "\n${RED}[!] Pilihan tidak sah.${NC}"
-                sleep 1
-                ;;
+            2) change_menu_style ;;
+            0) return ;;
+            *) echo -e "\n${RED}[!] Pilihan tidak sah.${NC}"; sleep 1 ;;
         esac
     done
 }
