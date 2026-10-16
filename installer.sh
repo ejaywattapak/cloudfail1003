@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================
 # EJAYWATT CLOUDFAIL v13.5 - OFFICIAL INSTALLER / CHECK & UPDATE
-# Option 2 downloads, validates and updates files from GitHub,
-# runs ANTICK, then opens the main menu.
+# Option 2 downloads, validates and updates files from GitHub only.
+# ANTICK is installed by setup.sh during Option 1 installation.
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -186,23 +186,7 @@ check_and_update_modules() {
         echo -e "${RED}[!] ${failures} fail gagal dikemas kini. Salinan lama dikekalkan untuk fail yang gagal.${NC}"
     fi
 
-    # Option 2 really runs ANTICK after fetching more/antick.sh.
-    if [ -s "${MORE_DIR}/antick.sh" ]; then
-        echo -e "${CYAN}[➜] Menjalankan pemasang ANTICK...${NC}"
-        if bash "${MORE_DIR}/antick.sh"; then
-            echo -e "${GREEN}[✔] ANTICK berjaya dipasang.${NC}"
-        else
-            echo -e "${YELLOW}[!] ANTICK gagal dipasang; semak mesej di atas.${NC}"
-        fi
-    else
-        echo -e "${RED}[✘] more/antick.sh tiada; ANTICK tidak dijalankan.${NC}"
-    fi
-
-    # Once update and ANTICK attempt finish, go straight into the main menu.
-    if [ -t 0 ] && [ -x /usr/bin/menu ]; then
-        echo -e "${CYAN}[➜] Membuka menu CloudFail...${NC}"
-        /usr/bin/menu
-    fi
+    # Option 2 must only check/update files; it must not install ANTICK or launch the menu.
     read -rp "Tekan Enter untuk kembali ke installer..." _
 }
 
