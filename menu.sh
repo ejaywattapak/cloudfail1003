@@ -78,6 +78,8 @@ menu_title_row() {
 }
 
 show_main_banner() {
+    # Render the 3D banner only while drawing the top-level menu.
+    [[ "${CF_MAIN_MENU_RENDER:-0}" == "1" ]] || return 0
     clear
     get_system_stats
     # Keep the original 3D ANSI Shadow font and one blank row above the banner.
@@ -124,6 +126,7 @@ show_main_banner() {
 }
 
 while true; do
+    CF_MAIN_MENU_RENDER=1
     show_main_banner
     printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$CYAN" "$NC"
     menu_title_row "MAIN MENU"
@@ -145,6 +148,9 @@ while true; do
     printf '%b╭─[%bPilih Menu (1-11 / 0=Exit)%b]\n%b╰─➤ %b' "$CYAN" "$WHITE" "$CYAN" "$CYAN" "$YELLOW"
     read -r choice
     printf '%b' "$NC"
+
+    # Disable the main banner while a submenu is running.
+    CF_MAIN_MENU_RENDER=0
 
     case "$choice" in
         1) menu_ipclone ;;
