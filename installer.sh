@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================
-# EJAYWATT CLOUDFAIL - MASTER INSTALLER (UBUNTU / DEBIAN / ROCKY)
+# EJAYWATT CLOUDFAIL v13.1 - OFFICIAL INSTALLER (FOLDER MENU)
 # Repo: https://github.com/ejaywattapak/cloudfail1003
 # ==============================================================
 
@@ -16,6 +16,16 @@ NC='\033[0m'
 
 REPO_RAW="https://raw.githubusercontent.com/ejaywattapak/cloudfail1003/main"
 SELF_PATH="$(realpath "$0" 2>/dev/null || echo "$0")"
+
+# Fail di direktori utama (Root Repo)
+ROOT_FILES=("setup.sh" "menu.sh" "core.sh")
+
+# Fail modul di dalam folder "menu/"
+MENU_MODULES=(
+    "ipclone.sh" "twinip.sh" "country.sh" "postcode.sh"
+    "domainip.sh" "ipdomain.sh" "bughunter.sh" "dnsipv6.sh"
+    "ipv6to4.sh" "history.sh"
+)
 
 show_3d_banner() {
     clear
@@ -35,39 +45,24 @@ show_3d_banner() {
    ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝
 ASCII
     echo -e "${NC}"
-    echo -e "${PURPLE}╭──────────────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${PURPLE}│${NC}        ${WHITE}⚡ OFFICIAL INSTALLER - UBUNTU | DEBIAN | ROCKY LINUX ⚡${NC}      ${PURPLE}│${NC}"
-    echo -e "${PURPLE}│${NC}               ${GRAY}GitHub : github.com/ejaywattapak/cloudfail1003${NC}         ${PURPLE}│${NC}"
-    echo -e "${PURPLE}╰──────────────────────────────────────────────────────────────────────╯${NC}"
-}
-
-detect_os() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS_ID="$ID"
-        OS_NAME="$PRETTY_NAME"
-    else
-        OS_ID="unknown"
-        OS_NAME="Unknown Linux"
-    fi
+    echo -e "${PURPLE}╭──────────────────────────────────────────────────────╮${NC}"
+    echo -e "${PURPLE}│${NC}   ${WHITE}⚡ OFFICIAL MODULAR INSTALLER v13.1 (MENU FOLDER) ⚡${NC} ${PURPLE}│${NC}"
+    echo -e "${PURPLE}╰──────────────────────────────────────────────────────╯${NC}"
 }
 
 run_installer() {
     show_3d_banner
-    echo -e "${CYAN}╭─[ 1. RUN INSTALLER ]${NC}"
-    echo -e "${CYAN}╰─➤${NC} ${YELLOW}Memuat turun & menjalankan setup.sh dari repo ejaywattapak...${NC}\n"
-
     if [ "$EUID" -ne 0 ]; then
-        echo -e "${RED}[✘] Sila jalankan installer ini sebagai pengguna root (sudo su)!${NC}"
+        echo -e "${RED}[✘] Sila jalankan installer ini sebagai root (sudo su)!${NC}"
         sleep 2
         return
     fi
 
+    echo -e "${CYAN}[➜] Memuat turun setup.sh dari repositori GitHub...${NC}"
     curl -fsSL "${REPO_RAW}/setup.sh" -o /tmp/cf_setup.sh
     if [ ! -s /tmp/cf_setup.sh ]; then
         echo -e "${RED}[✘] Gagal memuat turun setup.sh dari ${REPO_RAW}/setup.sh${NC}"
-        echo -ne "\n${WHITE}Tekan enter untuk balik ke menu installer${NC}"
-        read -r
+        read -rp "Tekan Enter untuk kembali..."
         return
     fi
 
@@ -80,65 +75,52 @@ run_installer() {
 
 check_installer() {
     show_3d_banner
-    detect_os
-    echo -e "${CYAN}╭───────────────────────[ 2. CHECK INSTALLER ]─────────────────────────╮${NC}\n"
+    echo -e "${CYAN}╭───[ MENYEMAK FAIL UTAMA & FOLDER MENU/ DI GITHUB ]───╮${NC}\n"
 
-    if [ "$EUID" -eq 0 ]; then
-        echo -e "  ${GREEN}[✔] Root Privilege     :${NC} ${WHITE}OK (Running as root)${NC}"
-    else
-        echo -e "  ${RED}[✘] Root Privilege     :${NC} ${YELLOW}Bukan root (Sila guna sudo / root)${NC}"
-    fi
-
-    if [[ "$OS_ID" =~ ^(ubuntu|debian|rocky|almalinux|centos|rhel)$ ]]; then
-        echo -e "  ${GREEN}[✔] Sistem Operasi     :${NC} ${WHITE}${OS_NAME} (Disokong)${NC}"
-    else
-        echo -e "  ${RED}[✘] Sistem Operasi     :${NC} ${YELLOW}${OS_NAME} (Tidak disokong secara rasmi)${NC}"
-    fi
-
-    echo -e "\n  ${CYAN}Menyemak Fail Komponen di Repo (ejaywattapak/cloudfail1003):${NC}"
-    local all_ok=1
-    for file in setup.sh menu.sh core.sh; do
-        http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${REPO_RAW}/${file}")
+    echo -e "  ${YELLOW}▸ Fail Utama (Root Repo):${NC}"
+    for file in "${ROOT_FILES[@]}"; do
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${REPO_RAW}/${file}")
         if [ "$http_code" == "200" ]; then
-            echo -e "  ${GREEN}[✔] Komponen ${file}	:${NC} ${GREEN}OK (HTTP 200 - Tersedia)${NC}"
+            printf "    ${GREEN}[✔] %-20s : OK (HTTP 200)${NC}\n" "$file"
         else
-            echo -e "  ${RED}[✘] Komponen ${file}	:${NC} ${RED}ERROR (HTTP ${http_code} - Tidak Dijumpai)${NC}"
-            all_ok=0
+            printf "    ${RED}[✘] %-20s : MISSING (HTTP %s)${NC}\n" "$file" "$http_code"
         fi
     done
 
-    echo -ne "\n${WHITE}Tekan enter untuk balik ke menu installer${NC}"
-    read -r
-}
+    echo -e "\n  ${YELLOW}▸ Modul Dalam Folder (menu/):${NC}"
+    for mod in "${MENU_MODULES[@]}"; do
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${REPO_RAW}/menu/${mod}")
+        if [ "$http_code" == "200" ]; then
+            printf "    ${GREEN}[✔] %-20s : OK (HTTP 200)${NC}\n" "menu/${mod}"
+        else
+            # Semak jika pengguna menamakan fail tanpa .sh di dalam folder menu/
+            mod_no_ext="${mod%.sh}"
+            http_code_alt=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${REPO_RAW}/menu/${mod_no_ext}")
+            if [ "$http_code_alt" == "200" ]; then
+                printf "    ${GREEN}[✔] %-20s : OK (HTTP 200)${NC}\n" "menu/${mod_no_ext}"
+            else
+                printf "    ${RED}[✘] %-20s : MISSING (HTTP %s)${NC}\n" "menu/${mod}" "$http_code"
+            fi
+        fi
+    done
 
-exit_ssh() {
-    echo -e "\n${YELLOW}[!] Membersihkan sisa fail installer & keluar dari sesi SSH...${NC}"
-    rm -f "$SELF_PATH" "$HOME/installer.sh" ./installer.sh /tmp/cf_setup.sh 2>/dev/null
-    sleep 1
-    kill -HUP "$PPID" 2>/dev/null || exit 0
+    echo -ne "\n${WHITE}Tekan Enter untuk kembali ke menu installer...${NC}"
+    read -r
 }
 
 while true; do
     show_3d_banner
-    echo -e "${CYAN}╭─────────────────────────[ INSTALLER MENU ]───────────────────────────╮${NC}"
-    echo -e "${CYAN}│${NC}                                                                      ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Run Installer${NC}    ${GRAY}(Pasang semua komponen & auto-setup menu)${NC}     ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Check Installer${NC}  ${GRAY}(Semak status OS & semua fail komponen)${NC}       ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   ${RED}[3]${NC} ${WHITE}Exit${NC}             ${GRAY}(Padam installer & terus keluar SSH)${NC}          ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}                                                                      ${CYAN}│${NC}"
-    echo -e "${CYAN}╰──────────────────────────────────────────────────────────────────────╯${NC}"
-    echo -e "${PURPLE}  if found bugs contact telegram @ejwtpkvpn${NC}\n"
-    echo -ne "${CYAN}╭─[${NC}${WHITE}Pilih Menu (1/2/3)${NC}${CYAN}]${NC}\n${CYAN}╰─➤ ${YELLOW}"
+    echo -e "${CYAN}╭──────────────────────────────────────────────────────╮${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[1]${NC} ${WHITE}Run Installer${NC}    ${GRAY}(Pasang semua modul & vnstat)${NC} ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${YELLOW}[2]${NC} ${WHITE}Check Modules${NC}    ${GRAY}(Semak folder menu/ GitHub)${NC}   ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC}   ${RED}[0]${NC} ${WHITE}Exit${NC}             ${GRAY}(Keluar dari installer)${NC}       ${CYAN}│${NC}"
+    echo -e "${CYAN}╰──────────────────────────────────────────────────────╯${NC}"
+    echo -ne "${CYAN}╰─➤ Pilih [1/2/0] : ${YELLOW}"
     read -r opt
     echo -ne "${NC}"
-
     case $opt in
         1) run_installer ;;
         2) check_installer ;;
-        3) exit_ssh ;;
-        *)
-            echo -e "\n${RED}[!] Pilihan tidak sah! Sila pilih 1, 2, atau 3.${NC}"
-            sleep 1.2
-            ;;
+        0) rm -f "$SELF_PATH" 2>/dev/null; exit 0 ;;
     esac
 done
