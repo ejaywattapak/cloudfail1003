@@ -236,3 +236,13 @@ detect_original_domain_fast() {
     echo "Direct-IP (${isp_name:-Direct-Server})"
 }
 export -f detect_original_domain_fast
+
+# CloudFail terminal clear: clear the visible screen and request scrollback erase.
+# This function is shared by the main menu and sourced submenu functions.
+clear() {
+    if [ -t 1 ]; then
+        printf '\033[H\033[2J\033[3J'
+    else
+        command clear 2>/dev/null || true
+    fi
+}

@@ -102,14 +102,22 @@ ensure_banner_font() {
 show_main_banner() {
     clear
     get_system_stats
-    printf '%b' "$BANNER_COLOR"
+    # Keep one terminal row above the original 3D ANSI Shadow banner.
+    printf '\n%b' "$BANNER_COLOR"
     # Preserve the original 3D ANSI Shadow font. Never print custom banner text tiny.
     local banner_text="${BANNER_TEXT:-EJAYWATT CLOUDFAIL}"
     local banner_drawn=0
+    local terminal_cols=80 banner_width=78
+    if command -v tput >/dev/null 2>&1; then
+        terminal_cols=$(tput cols 2>/dev/null || printf '80')
+    fi
+    [[ "$terminal_cols" =~ ^[0-9]+$ ]] || terminal_cols=80
+    (( terminal_cols < 24 )) && terminal_cols=24
+    banner_width=$((terminal_cols - 2))
     if command -v figlet >/dev/null 2>&1; then
-        if ensure_banner_font && figlet -d "${INSTALL_DIR}/fonts" -w 100 -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
+        if ensure_banner_font && figlet -d "${INSTALL_DIR}/fonts" -w "$banner_width" -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
             banner_drawn=1
-        elif figlet -w 100 -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
+        elif figlet -w "$banner_width" -f "ANSI Shadow" "$banner_text" 2>/dev/null; then
             banner_drawn=1
         fi
     fi
@@ -143,6 +151,15 @@ ASCII
     printf '%b│%b %b%-11s%b %b%-39.39s%b %b│%b\n' "$PURPLE" "$NC" "$WHITE" "vnStat Mo :" "$NC" "$GREEN" "Monthly Total: ${MONTH_TOT}" "$NC" "$PURPLE" "$NC"
     printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$PURPLE" "$NC"
 }
+
+# Use the alternate screen while the menu is open. Submenus inherit this screen.
+# On exit, restore the terminal and clear visible output/scrollback where supported.
+CF_MENU_ALT_SCREEN=0
+if [ -t 1 ]; then
+    printf '\033[?1049h\033[3J\033[H\033[2J'
+    CF_MENU_ALT_SCREEN=1
+    trap 'if [ "$CF_MENU_ALT_SCREEN" = 1 ]; then printf "\033[?25h\033[?1049l\033[3J\033[H\033[2J"; fi' EXIT
+fi
 
 while true; do
     show_main_banner
