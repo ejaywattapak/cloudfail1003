@@ -57,8 +57,19 @@ FALLBACK_MODULES=(
 )
 MODULES_TO_UPDATE=()
 MODULES_FROM_REPO="0"
+SHA_FAIL="0"
 
 say() { echo -e "$1"; }
+
+# Baris dalam kotak, lebar tetap 54 aksara supaya border sejajar.
+# PENTING: teks kena ASCII. Emoji/aksara lebar-2 (contoh ⚡) rosakkan
+# penjajaran sebab terminal kira 2 lajur tapi shell kira 1 aksara.
+box_row() {
+    local color="$1" text="$2"
+    local left=$(( (54 - ${#text}) / 2 ))
+    local right=$(( 54 - ${#text} - left ))
+    printf '%b│%b%*s%s%*s%b│%b\n' "$color" "$NC" "$left" "" "$text" "$right" "" "$color" "$NC"
+}
 
 show_banner() {
     clear
@@ -69,9 +80,9 @@ show_banner() {
         echo "EJAYWATT CLOUDFAIL"
     fi
     echo -e "${NC}"
-    echo -e "${PURPLE}╭──────────────────────────────────────────────────────╮${NC}"
-    echo -e "${PURPLE}│${NC}   ${WHITE}⚡ OFFICIAL INSTALLER v13.6 ⚡${NC}   ${PURPLE}│${NC}"
-    echo -e "${PURPLE}╰──────────────────────────────────────────────────────╯${NC}"
+    printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$PURPLE" "$NC"
+    box_row "$PURPLE" "OFFICIAL INSTALLER v13.6"
+    printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$PURPLE" "$NC"
 }
 
 # Baris menu dengan lebar tetap (54 aksara dalam kotak) supaya border sejajar.
@@ -172,21 +183,21 @@ update_one() {
         -w '%{http_code}' "${REPO_RAW}/${rel}" -o "$tmp" 2>/dev/null) || code="000"
     if [ "$code" != "200" ] || [ ! -s "$tmp" ]; then
         rm -f "$tmp"
-        printf "  ${RED}[✘] %-26s HTTP %s — fail lama dikekalkan${NC}\n" "$rel" "$code"
+        printf "  ${RED}[✘] %-24s GAGAL (HTTP %s) - lama dikekalkan${NC}\n" "$rel" "$code"
         return 1
     fi
     sed -i 's/\r$//' "$tmp" 2>/dev/null
     if ! bash -n "$tmp"; then
         rm -f "$tmp"
-        printf "  ${RED}[✘] %-26s sintaks Bash gagal — fail lama dikekalkan${NC}\n" "$rel"
+        printf "  ${RED}[✘] %-24s GAGAL (sintaks) - lama dikekalkan${NC}\n" "$rel"
         return 1
     fi
     verify_sha256 "$rel" "$tmp"
     vrc=$?
     if [ "$vrc" -eq 1 ]; then
         rm -f "$tmp"
-        printf "  ${RED}[✘] %-26s SHA256 TIDAK SEPADAN — fail lama dikekalkan${NC}\n" "$rel"
-        printf "  ${YELLOW}    (regenerate SHA256SUMS: bash tools/gen_sha256sums.sh)${NC}\n"
+        printf "  ${RED}[✘] %-24s GAGAL (SHA256 tak sepadan)${NC}\n" "$rel"
+        SHA_FAIL="1"
         return 1
     fi
     if [ -f "$dest" ]; then
@@ -194,21 +205,21 @@ update_one() {
         backup="${dest}.bak.${stamp}"
         if ! cp -a "$dest" "$backup"; then
             rm -f "$tmp"
-            printf "  ${RED}[✘] %-26s backup gagal — fail lama dikekalkan${NC}\n" "$rel"
+            printf "  ${RED}[✘] %-24s GAGAL (backup) - lama dikekalkan${NC}\n" "$rel"
             return 1
         fi
     fi
     chmod 0755 "$tmp" 2>/dev/null
     if ! mv -f "$tmp" "$dest"; then
         rm -f "$tmp"
-        printf "  ${RED}[✘] %-26s gagal ganti fail${NC}\n" "$rel"
+        printf "  ${RED}[✘] %-24s GAGAL (ganti fail)${NC}\n" "$rel"
         return 1
     fi
     prune_backups "$dest" "$KEEP_BACKUPS"
     case "$vrc" in
-        0) printf "  ${GREEN}[✔] %-26s HTTP 200 | Bash OK | SHA256 OK | UPDATED${NC}\n" "$rel" ;;
-        2) printf "  ${GREEN}[✔] %-26s HTTP 200 | Bash OK | UPDATED${NC} ${YELLOW}(SHA256 dilangkau)${NC}\n" "$rel" ;;
-        3) printf "  ${GREEN}[✔] %-26s HTTP 200 | Bash OK | UPDATED${NC} ${YELLOW}(tiada dlm SHA256SUMS)${NC}\n" "$rel" ;;
+        0) printf "  ${GREEN}[✔] %-24s OK (http200 bash sha256)${NC}\n" "$rel" ;;
+        2) printf "  ${GREEN}[✔] %-24s OK (http200 bash, sha dilangkau)${NC}\n" "$rel" ;;
+        3) printf "  ${GREEN}[✔] %-24s OK (http200 bash, tak dlm sums)${NC}\n" "$rel" ;;
     esac
     return 0
 }
@@ -226,7 +237,7 @@ update_plain() {
         -w '%{http_code}' "${REPO_RAW}/${rel}" -o "$tmp" 2>/dev/null) || code="000"
     if [ "$code" != "200" ] || [ ! -s "$tmp" ]; then
         rm -f "$tmp"
-        printf "  ${RED}[✘] %-26s HTTP %s — fail lama dikekalkan${NC}\n" "$rel" "$code"
+        printf "  ${RED}[✘] %-24s GAGAL (HTTP %s) - lama dikekalkan${NC}\n" "$rel" "$code"
         return 1
     fi
     sed -i 's/\r$//' "$tmp" 2>/dev/null
@@ -234,7 +245,8 @@ update_plain() {
     vrc=$?
     if [ "$vrc" -eq 1 ]; then
         rm -f "$tmp"
-        printf "  ${RED}[✘] %-26s SHA256 TIDAK SEPADAN — fail lama dikekalkan${NC}\n" "$rel"
+        printf "  ${RED}[✘] %-24s GAGAL (SHA256 tak sepadan)${NC}\n" "$rel"
+        SHA_FAIL="1"
         return 1
     fi
     if [ -f "$dest" ]; then
@@ -242,18 +254,18 @@ update_plain() {
         backup="${dest}.bak.${stamp}"
         if ! cp -a "$dest" "$backup"; then
             rm -f "$tmp"
-            printf "  ${RED}[✘] %-26s backup gagal — fail lama dikekalkan${NC}\n" "$rel"
+            printf "  ${RED}[✘] %-24s GAGAL (backup) - lama dikekalkan${NC}\n" "$rel"
             return 1
         fi
     fi
     chmod 0644 "$tmp" 2>/dev/null
     if ! mv -f "$tmp" "$dest"; then
         rm -f "$tmp"
-        printf "  ${RED}[✘] %-26s gagal ganti fail${NC}\n" "$rel"
+        printf "  ${RED}[✘] %-24s GAGAL (ganti fail)${NC}\n" "$rel"
         return 1
     fi
     prune_backups "$dest" "$KEEP_BACKUPS"
-    printf "  ${GREEN}[✔] %-26s HTTP 200 | UPDATED${NC}\n" "$rel"
+    printf "  ${GREEN}[✔] %-24s OK (http200)${NC}\n" "$rel"
     return 0
 }
 
@@ -287,21 +299,43 @@ load_module_list() {
     return 0
 }
 
-# Kemas kini installer.sh: salinan rasmi dalam INSTALL_DIR + salinan yang
-# sedang berjalan (kalau ia fail tempatan, bukan /tmp atau paip).
+# Kemas kini installer.sh.
+#   - Salinan rasmi (${INSTALL_DIR}/installer.sh) sentiasa dikemas kini.
+#   - Fail yang sedang dijalankan (contoh ~/installer.sh) ditukar jadi
+#     PAUTAN (symlink) ke salinan rasmi, supaya takde 2 salinan berasingan
+#     yang boleh jadi tak segerak.
 update_self() {
-    local rc=0
-    update_one "installer.sh" "${INSTALL_DIR}/installer.sh" || rc=1
+    local rc=0 target stamp
+    target="${INSTALL_DIR}/installer.sh"
+    update_one "installer.sh" "$target" || rc=1
+
     case "$SELF_PATH" in
-        /dev/*|/proc/*|/run/*|/tmp/*|"${INSTALL_DIR}/installer.sh") : ;;
-        *)
-            if [ -f "$SELF_PATH" ] && [ -w "$SELF_PATH" ] && [ -w "$(dirname "$SELF_PATH")" ]; then
-                update_one "installer.sh" "$SELF_PATH" || rc=1
-            else
-                say "${YELLOW}[i] Salinan installer.sh di ${SELF_PATH} tidak diganti (bukan fail tempatan yang boleh ditulis).${NC}"
-            fi
+        /dev/*|/proc/*|/run/*|/tmp/*)
+            say "${YELLOW}[i] installer.sh jalan dari lokasi sementara; pautan tak dibuat.${NC}"
+            return "$rc"
             ;;
     esac
+    if [ "$SELF_PATH" -ef "$target" ]; then
+        return "$rc"
+    fi
+    if [ ! -f "$SELF_PATH" ]; then
+        return "$rc"
+    fi
+    if [ -w "$SELF_PATH" ] && [ -w "$(dirname "$SELF_PATH")" ]; then
+        stamp="${SELF_PATH}.bak.$(date +%Y%m%d-%H%M%S)"
+        cp -a "$SELF_PATH" "$stamp" 2>/dev/null || true
+        if ln -sfn "$target" "$SELF_PATH" 2>/dev/null; then
+            prune_backups "$SELF_PATH" "$KEEP_BACKUPS"
+            say "${GREEN}[✔] Ditukar jadi pautan ke salinan rasmi:${NC}"
+            say "${CYAN}    ${SELF_PATH}${NC}"
+        else
+            say "${YELLOW}[!] Pautan gagal; dikemas kini sebagai fail berasingan.${NC}"
+            update_one "installer.sh" "$SELF_PATH" || rc=1
+        fi
+    else
+        say "${YELLOW}[i] ${SELF_PATH} tak boleh ditulis; guna salinan rasmi:${NC}"
+        say "${CYAN}    ${target}${NC}"
+    fi
     return "$rc"
 }
 
@@ -364,7 +398,7 @@ check_and_update_modules() {
         return
     }
 
-    echo -e "${CYAN}Semak, muat turun, uji sintaks/checksum dan kemas kini fail dari GitHub:${NC}\n"
+    echo -e "${CYAN}Semak + muat turun + update fail dari GitHub:${NC}\n"
     local failures=0 f
 
     fetch_sums || say "${YELLOW}[!] SHA256SUMS tidak dapat dimuat turun — semakan checksum dilangkau.${NC}"
@@ -398,11 +432,14 @@ check_and_update_modules() {
 
     echo
     if [ "$failures" -eq 0 ]; then
-        echo -e "${GREEN}[✔] Semua fail berjaya dimuat turun, disemak dan dikemas kini.${NC}"
-        echo -e "${CYAN}[i] Backup lama disimpan dengan akhiran .bak.TIMESTAMP (${KEEP_BACKUPS} terkini sahaja).${NC}"
+        echo -e "${GREEN}[✔] Semua fail OK dan dikemas kini.${NC}"
+        echo -e "${CYAN}[i] Backup: .bak.TIMESTAMP (${KEEP_BACKUPS} terkini per fail).${NC}"
     else
-        echo -e "${RED}[!] ${failures} fail gagal dikemas kini. Salinan lama dikekalkan untuk fail yang gagal.${NC}"
-        echo -e "${YELLOW}[i] Kalau mesejnya \"SHA256 TIDAK SEPADAN\", regenerate SHA256SUMS dalam repo.${NC}"
+        echo -e "${RED}[!] ${failures} fail gagal dikemas kini; salinan lama dikekalkan.${NC}"
+    fi
+    if [ "$SHA_FAIL" = "1" ]; then
+        echo -e "${YELLOW}[i] SHA256 tak sepadan utk fail di atas.${NC}"
+        echo -e "${YELLOW}[i] Dalam repo: bash tools/gen_sha256sums.sh${NC}"
     fi
 
     # Option 2 hanya semak/kemas kini fail; ia tak pasang ANTICK dan tak buka menu.

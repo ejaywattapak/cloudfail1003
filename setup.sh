@@ -130,18 +130,18 @@ update_one() {
         -w '%{http_code}' "${REPO_RAW}/${rel}" -o "$tmp" 2>/dev/null) || http_code="000"
     if [ "$http_code" != "200" ] || [ ! -s "$tmp" ]; then
         rm -f "$tmp"
-        fail "Fail ${rel} tidak tersedia atau gagal dimuat turun (HTTP ${http_code}); salinan lama dikekalkan."
+        fail "Muat turun ${rel} gagal (HTTP ${http_code}); salinan lama dikekalkan."
     fi
     sed -i 's/\r$//' "$tmp" 2>/dev/null
     if ! bash -n "$tmp"; then
         rm -f "$tmp"
-        fail "Sintaks Bash tidak sah dalam ${rel}; salinan lama tidak disentuh."
+        fail "Sintaks ${rel} tidak sah; salinan lama dikekalkan."
     fi
     verify_sha256 "$rel" "$tmp"
     vrc=$?
     if [ "$vrc" -eq 1 ]; then
         rm -f "$tmp"
-        fail "SHA256 ${rel} tidak sepadan dengan SHA256SUMS; salinan lama tidak disentuh. Regenerate SHA256SUMS dalam repo."
+        fail "SHA256 ${rel} tak sepadan; salinan lama dikekalkan. (regenerate: bash tools/gen_sha256sums.sh)"
     fi
     if [ -f "$dest" ]; then
         stamp=$(date +%Y%m%d-%H%M%S)
@@ -158,9 +158,9 @@ update_one() {
     fi
     prune_backups "$dest" "$KEEP_BACKUPS"
     case "$vrc" in
-        0) say "${GREEN}[✔] ${rel} dikemas kini (HTTP 200, Bash OK, SHA256 OK).${NC}" ;;
-        2) say "${GREEN}[✔] ${rel} dikemas kini (HTTP 200, Bash OK).${NC} ${YELLOW}SHA256 dilangkau.${NC}" ;;
-        3) say "${GREEN}[✔] ${rel} dikemas kini (HTTP 200, Bash OK).${NC} ${YELLOW}Tiada dalam SHA256SUMS.${NC}" ;;
+        0) say "${GREEN}[✔] ${rel} OK (http200 bash sha256)${NC}" ;;
+        2) say "${GREEN}[✔] ${rel} OK (http200 bash, sha dilangkau)${NC}" ;;
+        3) say "${GREEN}[✔] ${rel} OK (http200 bash, tak dlm sums)${NC}" ;;
     esac
     return 0
 }
@@ -176,14 +176,14 @@ update_plain() {
         -w '%{http_code}' "${REPO_RAW}/${rel}" -o "$tmp" 2>/dev/null) || http_code="000"
     if [ "$http_code" != "200" ] || [ ! -s "$tmp" ]; then
         rm -f "$tmp"
-        fail "Fail ${rel} tidak tersedia (HTTP ${http_code}); salinan lama dikekalkan."
+        fail "Muat turun ${rel} gagal (HTTP ${http_code}); salinan lama dikekalkan."
     fi
     sed -i 's/\r$//' "$tmp" 2>/dev/null
     verify_sha256 "$rel" "$tmp"
     vrc=$?
     if [ "$vrc" -eq 1 ]; then
         rm -f "$tmp"
-        fail "SHA256 ${rel} tidak sepadan; salinan lama tidak disentuh."
+        fail "SHA256 ${rel} tak sepadan; salinan lama dikekalkan."
     fi
     if [ -f "$dest" ]; then
         stamp=$(date +%Y%m%d-%H%M%S)
@@ -196,7 +196,7 @@ update_plain() {
     chmod 0644 "$tmp" 2>/dev/null
     mv -f "$tmp" "$dest" || fail "Gagal memasang ${rel}."
     prune_backups "$dest" "$KEEP_BACKUPS"
-    say "${GREEN}[✔] ${rel} dikemas kini.${NC}"
+    say "${GREEN}[✔] ${rel} OK (http200)${NC}"
     return 0
 }
 
@@ -412,7 +412,7 @@ if [ "$failures" -eq 0 ]; then
     say "${WHITE}Buka menu dengan arahan: ${CYAN}menu${NC}"
     say "${WHITE}Kemas kini kemudian: ${CYAN}cloudfail-update${NC}"
     say "${YELLOW}[i] VPS tidak akan reboot secara automatik.${NC}"
-    say "${CYAN}[i] Backup lama disimpan sebagai fail .bak.TIMESTAMP (${KEEP_BACKUPS} terkini per fail).${NC}"
+    say "${CYAN}[i] Backup: .bak.TIMESTAMP (${KEEP_BACKUPS} terkini per fail).${NC}"
 
     # Buka menu serta-merta, tetapi hanya dalam terminal interaktif.
     if [ -t 0 ] && [ -x /usr/bin/menu ]; then
